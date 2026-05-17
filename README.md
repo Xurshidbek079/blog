@@ -1,79 +1,68 @@
 # blog
 
-Minimal personal blog. Flask + Markdown files. No database, no admin panel.
+Personal blog built with Flask and Markdown files. No database, no admin panel, no JavaScript.
+
+## How it works
+
+All content lives as plain files on disk. Flask reads them at startup, renders them into HTML via Jinja2 templates, and caches everything in memory. A restart clears the cache and picks up any changes.
+
+```
+Internet → Nginx → Gunicorn → Flask (app.py)
+```
+
+Posts are Markdown files in `content/posts/`. Pages like About, Now, and Contact are also Markdown. Projects, Books, and Tools are YAML files. Nothing else.
 
 ## Stack
 
-- [Flask](https://flask.palletsprojects.com) — web framework
-- [Python-Markdown](https://python-markdown.github.io) — renders `.md` files
-- [PyYAML](https://pyyaml.org) — reads `.yaml` data files
-- [Gunicorn](https://gunicorn.org) — production server
-- Nginx — reverse proxy
+| Component | Technology |
+|---|---|
+| Language | Python 3.12 |
+| Web framework | Flask 3.0.3 |
+| Markdown renderer | Python-Markdown 3.6 |
+| Data files | PyYAML 6.0.2 |
+| Production server | Gunicorn 22.0.0 |
+| Reverse proxy | Nginx |
+| JavaScript | None |
+| Database | None |
 
-## Writing
+## Content structure
 
-**New post:**
-```bash
-./scripts/new.sh "My Essay Title"
-# Opens a draft at content/drafts/YYYY-MM-DD-my-essay-title.md
-# Edit it, then:
-./scripts/publish.sh content/drafts/YYYY-MM-DD-my-essay-title.md
-```
+| File | Page |
+|---|---|
+| `content/posts/YYYY-MM-DD-slug.md` | Essays |
+| `content/about.md` | About |
+| `content/now.md` | Now |
+| `content/contact.md` | Contact |
+| `content/projects.yaml` | Projects |
+| `content/books.yaml` | Books |
+| `content/tools.yaml` | Tools |
 
-**Publish existing `.md` directly:**
-```bash
-./scripts/publish.sh path/to/essay.md
-```
+### Post format
 
-The script copies it to `content/posts/` and offers to push to GitHub.
-
-**Post frontmatter format:**
 ```yaml
 ---
 title: My Essay
 date: 2025-01-15
-published: true   # set false to hide without deleting
+slug: my-essay
+published: true
+tags: [python, systems]
 ---
 
 Content in Markdown here.
 ```
 
-## Content files
+`slug` is optional — if omitted, it's derived from the filename with the date prefix stripped. Setting `published: false` hides the post without deleting the file.
 
-| File | What to edit |
-|---|---|
-| `content/posts/*.md` | Blog essays |
-| `content/about.md` | About page |
-| `content/now.md` | Now page |
-| `content/projects.yaml` | Projects list |
-| `content/books.yaml` | Books list |
-| `content/tools.yaml` | Tools list |
+## Philosophy
 
-## Local setup
+**No database.** Content is Markdown and YAML files. They are readable without any software, portable to any host, and trivially backed up with git.
 
-```bash
-pip3 install -r requirements.txt
-flask --app app run
-```
+**No admin panel.** Posts are written in a text editor. The site is managed through a Telegram bot that can create, publish, and delete posts, and edit any page — without touching a terminal.
 
-## Deploy (server)
+**No JavaScript.** The server renders complete HTML. The browser has nothing to execute.
 
-```bash
-git clone https://github.com/Xurshidbek079/blog /root/blog
-cd /root/blog
-pip3 install -r requirements.txt
-cp blog.service /etc/systemd/system/
-systemctl enable --now blog
-cp nginx.conf /etc/nginx/sites-available/blog
-ln -s /etc/nginx/sites-available/blog /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
-```
+**No secrets.** No API keys, no environment variables, no `.env` file needed to run the site.
 
-## Posting from server
+**Self-hosted.** Runs on a VPS with root access. No dependency on any platform. The entire site can be moved to a new server in under an hour.
 
-```bash
-cd /root/blog
-./scripts/new.sh "My New Essay"
-# edit the file
-./scripts/publish.sh content/drafts/...md
-```
+**Two languages.** The site UI is available in English and Uzbek Latin. Language is detected from the browser's `Accept-Language` header and can be switched with a toggle in the nav bar. Post content is never translated.

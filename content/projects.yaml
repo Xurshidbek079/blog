@@ -1,0 +1,9 @@
+- name: Flashcard Bot
+  description: Telegram bot for memorizing foreign words with a quiz system.
+  url: https://t.me/quizcard_robot
+  tech: [Python, SQLite, python-telegram-bot]
+
+- name: Blog
+  description: This site. Minimal Flask blog, posts written in Markdown.
+  url: https://github.com/Xurshidbek079/blog
+  tech: [Python, Flask, Markdown]

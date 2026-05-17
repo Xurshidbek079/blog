@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}{{ t[title_key] }} — Xurshid{% endblock %}
+{% block content %}
+<h1>{{ t[title_key] }}</h1>
+{{ content | safe }}
+{% endblock %}

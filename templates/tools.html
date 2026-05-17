@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ t.tools_title }} — Xurshid{% endblock %}
+{% block content %}
+<h1>{{ t.tools_title }}</h1>
+{% for section in sections %}
+<h2>{{ section.name }}</h2>
+<ul>
+{% for tool in section.tools %}
+<li>
+  {% if tool.url %}<a href="{{ tool.url }}">{{ tool.name }}</a>{% else %}{{ tool.name }}{% endif %}
+  {% if tool.note %} — {{ tool.note }}{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% endfor %}
+{% endblock %}

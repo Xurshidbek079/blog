@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  {% for route in static_routes %}
+  <url><loc>{{ base }}{{ route }}</loc></url>
+  {% endfor %}
+  {% for p in posts %}
+  <url><loc>{{ base }}/essays/{{ p.slug }}</loc></url>
+  {% endfor %}
+</urlset>

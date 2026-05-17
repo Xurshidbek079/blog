@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Xurshid</title>
+    <link>{{ base }}/</link>
+    <description>Essays by Xurshid Ruziyev</description>
+    <language>en</language>
+    {% for p in posts %}
+    <item>
+      <title>{{ p.title }}</title>
+      <link>{{ base }}/essays/{{ p.slug }}</link>
+      <guid isPermaLink="true">{{ base }}/essays/{{ p.slug }}</guid>
+      <pubDate>{{ p.date | rss_date }}</pubDate>
+      <description><![CDATA[{{ p.content }}]]></description>
+    </item>
+    {% endfor %}
+  </channel>
+</rss>

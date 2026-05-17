@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ t.books_title }} — Xurshid{% endblock %}
+{% block content %}
+<h1>{{ t.books_title }}</h1>
+
+{% if reading %}
+<h2>{{ t.books_reading }}</h2>
+{% for b in reading %}
+<p><strong>{{ b.title }}</strong> — {{ b.author }}</p>
+{% endfor %}
+{% endif %}
+
+{% if done %}
+<h2>{{ t.books_done }}</h2>
+{% for b in done %}
+<p>
+  <strong>{{ b.title }}</strong> — {{ b.author }}
+  {% if b.rating %} &nbsp;{{ "★" * b.rating }}{% endif %}
+  {% if b.note %}<br><span class="meta">{{ b.note }}</span>{% endif %}
+</p>
+{% endfor %}
+{% endif %}
+
+{% if want %}
+<h2>{{ t.books_want }}</h2>
+{% for b in want %}
+<p><strong>{{ b.title }}</strong> — {{ b.author }}</p>
+{% endfor %}
+{% endif %}
+{% endblock %}

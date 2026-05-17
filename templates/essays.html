@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ t.essays_title }} — Xurshid{% endblock %}
+{% block content %}
+<h1>{{ t.essays_title }}</h1>
+{% if active_tag %}<p class="meta">{{ t.essays_tag_prefix }} {{ active_tag }} &nbsp;<a href="/essays">{{ t.essays_tag_clear }}</a></p>{% endif %}
+{% if posts %}
+<ul class="posts">
+{% for p in posts %}
+<li>
+  <span class="date">{{ p.date }}</span>
+  <a href="/essays/{{ p.slug }}">{{ p.title }}</a>
+  {% if p.tags %}<span class="meta"> · {% for tag in p.tags %}<a href="/essays?tag={{ tag }}">{{ tag }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>{% if active_tag %}{{ t.essays_none_tagged }} "{{ active_tag }}".{% else %}{{ t.essays_none }}{% endif %}</p>
+{% endif %}
+{% endblock %}

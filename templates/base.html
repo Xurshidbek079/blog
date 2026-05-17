@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Xurshid{% endblock %}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,serif;font-size:18px;line-height:1.7;color:#111;background:#fff;padding:60px 20px}
+.wrap{max-width:640px;margin:0 auto}
+h1{font-size:2em;font-weight:normal;margin-bottom:.3em}
+h2{font-size:1.4em;font-weight:normal;margin:2.5em 0 .5em}
+h3{font-size:1.1em;font-weight:bold;margin:2em 0 .3em}
+p{margin-bottom:1.2em}
+a{color:#00e;text-decoration:underline}
+a:visited{color:#551a8b}
+a:hover{text-decoration:none}
+nav{margin-bottom:3em;font-size:.9em;display:flex;flex-wrap:wrap;align-items:center;gap:.2em 0}
+nav a{margin-right:1.2em;text-decoration:none}
+nav a:hover{text-decoration:underline}
+.lang-toggle{margin-left:auto;display:flex;gap:.4em;font-size:.85em}
+.lang-toggle a{text-decoration:none;color:#999;padding:.1em .3em}
+.lang-toggle a.active{color:#111;font-weight:bold}
+.meta{color:#666;font-size:.85em;margin-bottom:2em}
+.posts li{list-style:none;margin-bottom:1em;display:flex;gap:1.5em;align-items:baseline}
+.posts .date{color:#666;font-size:.85em;white-space:nowrap}
+pre{background:#f4f4f4;padding:1em;overflow-x:auto;margin-bottom:1.2em;font-size:.85em}
+code{font-family:monospace;background:#f4f4f4;padding:.1em .3em}
+pre code{background:none;padding:0}
+blockquote{border-left:3px solid #ddd;padding-left:1em;color:#555;margin-bottom:1.2em}
+.back{margin-top:3em;font-size:.9em}
+hr{border:none;border-top:1px solid #ddd;margin:2em 0}
+ul,ol{padding-left:1.5em;margin-bottom:1.2em}
+li{margin-bottom:.3em}
+table{border-collapse:collapse;width:100%;margin-bottom:1.2em;font-size:.9em}
+th,td{border:1px solid #ddd;padding:.4em .7em;text-align:left}
+th{background:#f4f4f4}
+.sitemap{list-style:none;padding:0;columns:2;margin-bottom:1.2em}
+.sitemap li{margin-bottom:.4em}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a href="/">{{ t.nav_home }}</a>
+  <a href="/essays">{{ t.nav_essays }}</a>
+  <a href="/projects">{{ t.nav_projects }}</a>
+  <a href="/books">{{ t.nav_books }}</a>
+  <a href="/tools">{{ t.nav_tools }}</a>
+  <a href="/now">{{ t.nav_now }}</a>
+  <a href="/about">{{ t.nav_about }}</a>
+  <a href="/contact">{{ t.nav_contact }}</a>
+  <span class="lang-toggle">
+    <a href="/lang/en"{% if lang == 'en' %} class="active"{% endif %}>EN</a>
+    <a href="/lang/uz"{% if lang == 'uz' %} class="active"{% endif %}>UZ</a>
+  </span>
+</nav>
+{% block content %}{% endblock %}
+</div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+- name: Blog
+  description: Ушбу сайт. Flask асосида ёзилган минимал блог, мақолалар Markdown форматида.
+  url: https://github.com/Xurshidbek079/blog
+  tech: [Flask]
+
+- name: Attendence bot(Telegram)
+  description: Ҳар куни Telegram гуруҳларида давоматни текширади.
+  url: https://github.com/Xurshidbek079/davomatbot
+  tech: [Python]
+
+- name: Others(tech projects)
+  url: https://github.com/Xurshidbek079

@@ -347,6 +347,15 @@ def read_yaml(filename: str):
     return yaml.safe_load(path.read_text(encoding="utf-8")) or []
 
 
+def read_yaml_lang(filename: str, lang: str):
+    if lang != "en":
+        stem, ext = filename.rsplit(".", 1)
+        lang_path = CONTENT / f"{stem}.{lang}.{ext}"
+        if lang_path.exists():
+            return yaml.safe_load(lang_path.read_text(encoding="utf-8")) or []
+    return read_yaml(filename)
+
+
 @app.template_filter("rss_date")
 def rss_date_filter(d):
     if isinstance(d, datetime):
@@ -460,7 +469,8 @@ def contact():
 
 @app.route("/projects")
 def projects():
-    return render_template("projects.html", projects=read_yaml("projects.yaml"))
+    lang = detect_lang()
+    return render_template("projects.html", projects=read_yaml_lang("projects.yaml", lang))
 
 
 @app.route("/books")

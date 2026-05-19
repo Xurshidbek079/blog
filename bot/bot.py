@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-import asyncio
 import os
 import re
 import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -14,24 +12,20 @@ from telegram.ext import (
     filters, ContextTypes,
 )
 
-BOT_TOKEN  = os.environ["BOT_TOKEN"]
-ADMIN_ID   = int(os.environ["ADMIN_ID"])
-GEMINI_KEY = os.environ["GEMINI_API_KEY"]
-BLOG_DIR   = Path("/root/blog")
-POSTS_DIR  = BLOG_DIR / "content/posts"
-DRAFTS_DIR = BLOG_DIR / "content/drafts"
+BOT_TOKEN   = os.environ["BOT_TOKEN"]
+ADMIN_ID    = int(os.environ["ADMIN_ID"])
+BLOG_DIR    = Path("/root/blog")
+POSTS_DIR   = BLOG_DIR / "content/posts"
+DRAFTS_DIR  = BLOG_DIR / "content/drafts"
 CONTENT_DIR = BLOG_DIR / "content"
-
-_gemini = genai.Client(api_key=GEMINI_KEY)
 
 # ── Conversation states ────────────────────────────────────────────────────────
 (TITLE, TAGS, CONTENT,
- UZ_REVIEW, UZ_EDIT, CYR_REVIEW, CYR_EDIT,
- FINAL_CONFIRM) = range(8)
+ ASK_UZ, ASK_CYR,
+ FINAL_CONFIRM) = range(6)
 
 (PAGE_PICK, PAGE_CONTENT,
- PAGE_UZ_REVIEW, PAGE_UZ_EDIT,
- PAGE_CYR_REVIEW, PAGE_CYR_EDIT) = range(8, 14)
+ PAGE_ASK_UZ, PAGE_ASK_CYR) = range(6, 10)
 
 PAGES = {
     "About":    "about.md",
@@ -40,11 +34,6 @@ PAGES = {
     "Projects": "projects.yaml",
     "Books":    "books.yaml",
     "Tools":    "tools.yaml",
-}
-
-LANG_NAMES = {
-    "uz":     "Uzbek Latin script (official Uzbek Latin alphabet used in Uzbekistan)",
-    "uz_cyr": "Uzbek Cyrillic script",
 }
 
 _LANG_VARIANT = re.compile(r'\.(uz|uz_cyr)\.md$')
@@ -72,34 +61,6 @@ def base_posts(directory: Path):
     )
 
 
-def truncate(text: str, limit: int = 3600) -> str:
-    return text[:limit] + "\n…(truncated)" if len(text) > limit else text
-
-
-def t_keyboard(prefix: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("✓ Approve", callback_data=f"{prefix}:approve"),
-        InlineKeyboardButton("✏️ Edit",   callback_data=f"{prefix}:edit"),
-    ]])
-
-
-async def gemini_translate(text: str, target: str) -> str:
-    prompt = (
-        f"Translate the following blog content to {LANG_NAMES[target]}.\n"
-        "Rules:\n"
-        "- Preserve ALL Markdown formatting exactly (**, *, ##, [], (), etc.)\n"
-        "- Keep all URLs, emails, and code blocks unchanged\n"
-        "- Return ONLY the translated text, no notes or explanations\n\n"
-        f"{text}"
-    )
-    response = await asyncio.to_thread(
-        _gemini.models.generate_content,
-        model="gemini-2.0-flash",
-        contents=prompt,
-    )
-    return response.text.strip()
-
-
 # ── /start ────────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -107,7 +68,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "Blog admin\n\n"
-        "/new — write a post (auto-translates to UZ + ЎЗ via Gemini)\n"
+        "/new — write a new post\n"
         "/drafts — list & publish drafts\n"
         "/posts — recent published posts\n"
         "/delete — delete a post\n"
@@ -146,79 +107,52 @@ async def skip_tags(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def got_content(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    content = update.message.text
-    ctx.user_data["en_content"] = content
-    msg = await update.message.reply_text("Translating to Uzbek Latin…")
-    try:
-        uz = await gemini_translate(content, "uz")
-    except Exception as e:
-        await msg.edit_text(f"Translation error: {e}\nSend content again or /cancel.")
-        return CONTENT
-    ctx.user_data["uz_content"] = uz
-    await msg.edit_text(
-        f"🇺🇿 *Uzbek Latin:*\n\n{truncate(uz)}",
-        parse_mode="Markdown",
-        reply_markup=t_keyboard("uz"),
+    ctx.user_data["en_content"] = update.message.text
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Latin translation?\nSend the text or /skip:"
     )
-    return UZ_REVIEW
+    return ASK_UZ
 
 
-async def uz_review(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    if q.data == "uz:edit":
-        await q.edit_message_text("Send corrected Uzbek Latin text:")
-        return UZ_EDIT
-    await q.edit_message_text("✓ UZ Latin approved. Translating to Cyrillic…")
-    return await _translate_cyr(q.message, ctx, from_key="uz_content", state=CYR_REVIEW)
-
-
-async def uz_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def got_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["uz_content"] = update.message.text
-    msg = await update.message.reply_text("Saved. Translating to Cyrillic…")
-    return await _translate_cyr(msg, ctx, from_key="uz_content", state=CYR_REVIEW)
-
-
-async def _translate_cyr(msg, ctx, from_key: str, state: int):
-    try:
-        cyr = await gemini_translate(ctx.user_data[from_key], "uz_cyr")
-    except Exception as e:
-        await msg.reply_text(f"Translation error: {e}")
-        return state
-    ctx.user_data["cyr_content"] = cyr
-    await msg.reply_text(
-        f"🇺🇿 *Uzbek Cyrillic:*\n\n{truncate(cyr)}",
-        parse_mode="Markdown",
-        reply_markup=t_keyboard("cyr"),
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
     )
-    return state
+    return ASK_CYR
 
 
-async def cyr_review(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    if q.data == "cyr:edit":
-        await q.edit_message_text("Send corrected Uzbek Cyrillic text:")
-        return CYR_EDIT
-    await q.edit_message_text("✓ Cyrillic approved.")
-    return await _new_final_prompt(q.message, ctx)
+async def skip_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["uz_content"] = None
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
+    )
+    return ASK_CYR
 
 
-async def cyr_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def got_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["cyr_content"] = update.message.text
-    return await _new_final_prompt(update.message, ctx)
+    return await _show_final_confirm(update.message, ctx)
 
 
-async def _new_final_prompt(msg, ctx):
-    title = ctx.user_data["title"]
-    tags  = ctx.user_data["tags"]
+async def skip_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["cyr_content"] = None
+    return await _show_final_confirm(update.message, ctx)
+
+
+async def _show_final_confirm(message, ctx):
+    title  = ctx.user_data["title"]
+    tags   = ctx.user_data["tags"]
+    langs  = "EN"
+    if ctx.user_data.get("uz_content"):  langs += " + UZ"
+    if ctx.user_data.get("cyr_content"): langs += " + ЎЗ"
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("Publish now",   callback_data="new:publish"),
         InlineKeyboardButton("Save as draft", callback_data="new:draft"),
         InlineKeyboardButton("Cancel",        callback_data="new:cancel"),
     ]])
-    await msg.reply_text(
-        f"*{title}*\nTags: {', '.join(tags) or 'none'}\n\nReady — EN + UZ + ЎЗ",
+    await message.reply_text(
+        f"*{title}*\nTags: {', '.join(tags) or 'none'}\nLanguages: {langs}",
         parse_mode="Markdown",
         reply_markup=kb,
     )
@@ -250,14 +184,20 @@ async def new_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     target.mkdir(parents=True, exist_ok=True)
 
     (target / fname).write_text(frontmatter(ctx.user_data["en_content"]), encoding="utf-8")
-    (target / fname.replace(".md", ".uz.md")).write_text(frontmatter(ctx.user_data["uz_content"]), encoding="utf-8")
-    (target / fname.replace(".md", ".uz_cyr.md")).write_text(frontmatter(ctx.user_data["cyr_content"]), encoding="utf-8")
+    if ctx.user_data.get("uz_content"):
+        (target / fname.replace(".md", ".uz.md")).write_text(
+            frontmatter(ctx.user_data["uz_content"]), encoding="utf-8"
+        )
+    if ctx.user_data.get("cyr_content"):
+        (target / fname.replace(".md", ".uz_cyr.md")).write_text(
+            frontmatter(ctx.user_data["cyr_content"]), encoding="utf-8"
+        )
 
     if action == "publish":
         shell("systemctl restart blog")
-        await q.edit_message_text(f"Published ✓ (EN + UZ + ЎЗ)\n/essays/{slug}")
+        await q.edit_message_text(f"Published ✓\n/essays/{slug}")
     else:
-        await q.edit_message_text(f"Draft saved (EN + UZ + ЎЗ): {fname}")
+        await q.edit_message_text(f"Draft saved: {fname}")
     return ConversationHandler.END
 
 
@@ -294,10 +234,10 @@ async def draft_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Draft not found.")
         return
     ctx.user_data["draft"] = fname
-    preview = path.read_text(encoding="utf-8")[:600]
-    uz_ok  = (DRAFTS_DIR / fname.replace(".md", ".uz.md")).exists()
-    cyr_ok = (DRAFTS_DIR / fname.replace(".md", ".uz_cyr.md")).exists()
-    langs  = "EN" + (" + UZ" if uz_ok else "") + (" + ЎЗ" if cyr_ok else "")
+    preview  = path.read_text(encoding="utf-8")[:600]
+    uz_ok    = (DRAFTS_DIR / fname.replace(".md", ".uz.md")).exists()
+    cyr_ok   = (DRAFTS_DIR / fname.replace(".md", ".uz_cyr.md")).exists()
+    langs    = "EN" + (" + UZ" if uz_ok else "") + (" + ЎЗ" if cyr_ok else "")
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("Publish", callback_data="dpub:yes"),
         InlineKeyboardButton("Cancel",  callback_data="dpub:no"),
@@ -420,10 +360,11 @@ async def page_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["edit_page"] = fname
     path = CONTENT_DIR / fname
     current = path.read_text(encoding="utf-8") if path.exists() else "(empty)"
+    if len(current) > 3000:
+        current = current[:3000] + "\n…(truncated)"
     fmt = "YAML" if fname.endswith(".yaml") else "Markdown"
     await q.edit_message_text(
-        f"*{fname}* (current):\n\n```\n{truncate(current, 2800)}\n```\n\n"
-        f"Send full new {fmt} content, or /cancel:",
+        f"*{fname}* (current):\n\n```\n{current}\n```\n\nSend full new {fmt} content, or /cancel:",
         parse_mode="Markdown",
     )
     return PAGE_CONTENT
@@ -431,86 +372,61 @@ async def page_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def page_content(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     fname = ctx.user_data.get("edit_page")
-    new_content = update.message.text
+    ctx.user_data["page_en"] = update.message.text
 
-    # YAML pages: save directly, no translation
+    # YAML: save directly, no language variants
     if fname.endswith(".yaml"):
-        (CONTENT_DIR / fname).write_text(new_content, encoding="utf-8")
+        (CONTENT_DIR / fname).write_text(update.message.text, encoding="utf-8")
         shell("systemctl restart blog")
         await update.message.reply_text(f"Saved ✓ {fname}")
         return ConversationHandler.END
 
-    ctx.user_data["page_en"] = new_content
-    msg = await update.message.reply_text("Translating to Uzbek Latin…")
-    try:
-        uz = await gemini_translate(new_content, "uz")
-    except Exception as e:
-        await msg.edit_text(f"Translation error: {e}\nTry again or /cancel.")
-        return PAGE_CONTENT
-    ctx.user_data["page_uz"] = uz
-    await msg.edit_text(
-        f"🇺🇿 *Uzbek Latin:*\n\n{truncate(uz)}",
-        parse_mode="Markdown",
-        reply_markup=t_keyboard("pg_uz"),
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Latin translation?\nSend the text or /skip:"
     )
-    return PAGE_UZ_REVIEW
+    return PAGE_ASK_UZ
 
 
-async def page_uz_review(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    if q.data == "pg_uz:edit":
-        await q.edit_message_text("Send corrected Uzbek Latin text:")
-        return PAGE_UZ_EDIT
-    await q.edit_message_text("✓ UZ Latin approved. Translating to Cyrillic…")
-    return await _page_translate_cyr(q.message, ctx)
-
-
-async def page_uz_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def page_got_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["page_uz"] = update.message.text
-    msg = await update.message.reply_text("Saved. Translating to Cyrillic…")
-    return await _page_translate_cyr(msg, ctx)
-
-
-async def _page_translate_cyr(msg, ctx):
-    try:
-        cyr = await gemini_translate(ctx.user_data["page_uz"], "uz_cyr")
-    except Exception as e:
-        await msg.reply_text(f"Translation error: {e}")
-        return PAGE_CYR_REVIEW
-    ctx.user_data["page_cyr"] = cyr
-    await msg.reply_text(
-        f"🇺🇿 *Uzbek Cyrillic:*\n\n{truncate(cyr)}",
-        parse_mode="Markdown",
-        reply_markup=t_keyboard("pg_cyr"),
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
     )
-    return PAGE_CYR_REVIEW
+    return PAGE_ASK_CYR
 
 
-async def page_cyr_review(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    if q.data == "pg_cyr:edit":
-        await q.edit_message_text("Send corrected Uzbek Cyrillic text:")
-        return PAGE_CYR_EDIT
-    await q.edit_message_text("✓ Cyrillic approved. Saving…")
-    return await _page_save_all(q.message, ctx)
+async def page_skip_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["page_uz"] = None
+    await update.message.reply_text(
+        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
+    )
+    return PAGE_ASK_CYR
 
 
-async def page_cyr_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def page_got_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["page_cyr"] = update.message.text
-    return await _page_save_all(update.message, ctx)
+    return await _save_page(update.message, ctx)
 
 
-async def _page_save_all(msg, ctx):
+async def page_skip_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["page_cyr"] = None
+    return await _save_page(update.message, ctx)
+
+
+async def _save_page(message, ctx):
     fname = ctx.user_data["edit_page"]
     stem  = fname.rsplit(".", 1)[0]
     ext   = fname.rsplit(".", 1)[1]
+    saved = [fname]
     (CONTENT_DIR / fname).write_text(ctx.user_data["page_en"], encoding="utf-8")
-    (CONTENT_DIR / f"{stem}.uz.{ext}").write_text(ctx.user_data["page_uz"], encoding="utf-8")
-    (CONTENT_DIR / f"{stem}.uz_cyr.{ext}").write_text(ctx.user_data["page_cyr"], encoding="utf-8")
+    if ctx.user_data.get("page_uz"):
+        (CONTENT_DIR / f"{stem}.uz.{ext}").write_text(ctx.user_data["page_uz"], encoding="utf-8")
+        saved.append(f"{stem}.uz.{ext}")
+    if ctx.user_data.get("page_cyr"):
+        (CONTENT_DIR / f"{stem}.uz_cyr.{ext}").write_text(ctx.user_data["page_cyr"], encoding="utf-8")
+        saved.append(f"{stem}.uz_cyr.{ext}")
     shell("systemctl restart blog")
-    await msg.reply_text(f"Saved ✓ {fname} (EN + UZ + ЎЗ)")
+    await message.reply_text("Saved ✓\n" + "\n".join(saved))
     return ConversationHandler.END
 
 
@@ -549,11 +465,15 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, got_tags),
             ],
             CONTENT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, got_content)],
-            UZ_REVIEW:     [CallbackQueryHandler(uz_review,  pattern=r"^uz:")],
-            UZ_EDIT:       [MessageHandler(filters.TEXT & ~filters.COMMAND, uz_edit)],
-            CYR_REVIEW:    [CallbackQueryHandler(cyr_review, pattern=r"^cyr:")],
-            CYR_EDIT:      [MessageHandler(filters.TEXT & ~filters.COMMAND, cyr_edit)],
-            FINAL_CONFIRM: [CallbackQueryHandler(new_final,  pattern=r"^new:")],
+            ASK_UZ:        [
+                CommandHandler("skip", skip_uz),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, got_uz),
+            ],
+            ASK_CYR:       [
+                CommandHandler("skip", skip_cyr),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, got_cyr),
+            ],
+            FINAL_CONFIRM: [CallbackQueryHandler(new_final, pattern=r"^new:")],
         },
         fallbacks=[CommandHandler("cancel", new_cancel)],
     )
@@ -561,12 +481,16 @@ def main():
     pages_conv = ConversationHandler(
         entry_points=[CommandHandler("pages", cmd_pages)],
         states={
-            PAGE_PICK:       [CallbackQueryHandler(page_pick,      pattern=r"^page:")],
-            PAGE_CONTENT:    [MessageHandler(filters.TEXT & ~filters.COMMAND, page_content)],
-            PAGE_UZ_REVIEW:  [CallbackQueryHandler(page_uz_review, pattern=r"^pg_uz:")],
-            PAGE_UZ_EDIT:    [MessageHandler(filters.TEXT & ~filters.COMMAND, page_uz_edit)],
-            PAGE_CYR_REVIEW: [CallbackQueryHandler(page_cyr_review, pattern=r"^pg_cyr:")],
-            PAGE_CYR_EDIT:   [MessageHandler(filters.TEXT & ~filters.COMMAND, page_cyr_edit)],
+            PAGE_PICK:    [CallbackQueryHandler(page_pick, pattern=r"^page:")],
+            PAGE_CONTENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, page_content)],
+            PAGE_ASK_UZ:  [
+                CommandHandler("skip", page_skip_uz),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, page_got_uz),
+            ],
+            PAGE_ASK_CYR: [
+                CommandHandler("skip", page_skip_cyr),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, page_got_cyr),
+            ],
         },
         fallbacks=[CommandHandler("cancel", pages_cancel)],
     )

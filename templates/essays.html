@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}{{ t.essays_title }} — Xurshid{% endblock %}
+{% block title %}{{ page_title if page_title else t.essays_title }} — Xurshid{% endblock %}
 {% block content %}
-<h1>{{ t.essays_title }}</h1>
+<h1>{{ page_title if page_title else t.essays_title }}</h1>
 {% if active_tag %}<p class="meta">{{ t.essays_tag_prefix }} {{ active_tag }} &nbsp;<a href="{{ base_url }}">{{ t.essays_tag_clear }}</a></p>{% endif %}
 {% if posts %}
 <ul class="posts">

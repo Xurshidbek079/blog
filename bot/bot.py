@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-import google.generativeai as genai
+from google import genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -22,8 +22,7 @@ POSTS_DIR  = BLOG_DIR / "content/posts"
 DRAFTS_DIR = BLOG_DIR / "content/drafts"
 CONTENT_DIR = BLOG_DIR / "content"
 
-genai.configure(api_key=GEMINI_KEY)
-_gemini = genai.GenerativeModel("gemini-1.5-flash")
+_gemini = genai.Client(api_key=GEMINI_KEY)
 
 # ── Conversation states ────────────────────────────────────────────────────────
 (TITLE, TAGS, CONTENT,
@@ -93,7 +92,11 @@ async def gemini_translate(text: str, target: str) -> str:
         "- Return ONLY the translated text, no notes or explanations\n\n"
         f"{text}"
     )
-    response = await asyncio.to_thread(_gemini.generate_content, prompt)
+    response = await asyncio.to_thread(
+        _gemini.models.generate_content,
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
     return response.text.strip()
 
 

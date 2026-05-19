@@ -230,6 +230,33 @@ def get_blog_posts(tag: str | None = None) -> list[dict]:
 
 
 @lru_cache(maxsize=None)
+def _lang_title(base_path_str: str, lang: str) -> str | None:
+    base = Path(base_path_str)
+    lang_path = base.parent / f"{base.stem}.{lang}.md"
+    if not lang_path.exists():
+        return None
+    text = lang_path.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        meta = yaml.safe_load(text.split("---", 2)[1]) or {}
+        return meta.get("title") or None
+    return None
+
+
+def localize_titles(posts: list[dict], lang: str, slug_map: dict) -> list[dict]:
+    if lang == "en":
+        return posts
+    out = []
+    for p in posts:
+        base = slug_map.get(p["slug"])
+        if base:
+            title = _lang_title(str(base), lang)
+            if title:
+                p = {**p, "title": title}
+        out.append(p)
+    return out
+
+
+@lru_cache(maxsize=None)
 def _render_md(path_str: str) -> str:
     path = Path(path_str)
     if not path.exists():
@@ -285,7 +312,9 @@ def home():
 @app.route("/blog")
 def blog():
     tag = request.args.get("tag") or None
-    return render_template("essays.html", posts=get_blog_posts(tag), active_tag=tag, base_url="/blog")
+    lang = detect_lang()
+    posts = localize_titles(get_blog_posts(tag), lang, get_blog_slug_map())
+    return render_template("essays.html", posts=posts, active_tag=tag, base_url="/blog")
 
 
 @app.route("/blog/<slug>")
@@ -306,7 +335,9 @@ def blog_post(slug):
 @app.route("/essays")
 def essays():
     tag = request.args.get("tag") or None
-    return render_template("essays.html", posts=get_posts(tag), active_tag=tag, base_url="/essays")
+    lang = detect_lang()
+    posts = localize_titles(get_posts(tag), lang, get_slug_map())
+    return render_template("essays.html", posts=posts, active_tag=tag, base_url="/essays")
 
 
 @app.route("/essays/<slug>")

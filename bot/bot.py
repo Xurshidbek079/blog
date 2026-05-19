@@ -27,6 +27,8 @@ CONTENT_DIR    = BLOG_DIR / "content"
 
 (PAGE_PICK, PAGE_LANG, PAGE_CONTENT) = range(6, 9)
 
+(EDIT_PICK, EDIT_CONTENT) = range(9, 11)
+
 PAGES = {
     "About":    "about.md",
     "Now":      "now.md",
@@ -70,6 +72,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Blog admin\n\n"
         "/newessay — write a new essay (→ /essays)\n"
         "/newpost — write a new blog post (→ /blog)\n"
+        "/edit — edit an existing post or essay\n"
         "/drafts — list & publish drafts\n"
         "/essays — recent published essays\n"
         "/posts — recent published blog posts\n"
@@ -472,6 +475,59 @@ async def pages_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# ── /edit conversation ────────────────────────────────────────────────────────
+
+async def cmd_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return ConversationHandler.END
+    essays    = [("[E] " + f.stem, f"edit:e:{f.name}") for f in base_posts(ESSAYS_DIR)[:15]]
+    blogposts = [("[B] " + f.stem, f"edit:b:{f.name}") for f in base_posts(BLOG_POSTS_DIR)[:20]]
+    all_files = blogposts + essays
+    if not all_files:
+        await update.message.reply_text("No posts found.")
+        return ConversationHandler.END
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=cb)]
+        for label, cb in all_files
+    ])
+    await update.message.reply_text("[B]=Blog  [E]=Essay\nSelect post to edit:", reply_markup=kb)
+    return EDIT_PICK
+
+
+async def edit_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    _, kind, fname = q.data.split(":", 2)
+    src_dir = ESSAYS_DIR if kind == "e" else BLOG_POSTS_DIR
+    path = src_dir / fname
+    if not path.exists():
+        await q.edit_message_text("File not found.")
+        return ConversationHandler.END
+    ctx.user_data["edit_post_path"] = str(path)
+    current = path.read_text(encoding="utf-8")
+    if len(current) > 3500:
+        current = current[:3500] + "\n…(truncated)"
+    await q.edit_message_text(
+        f"*{fname}* (current):\n\n```\n{current}\n```\n\n"
+        "Send the full new content (with frontmatter) or /cancel:",
+        parse_mode="Markdown",
+    )
+    return EDIT_CONTENT
+
+
+async def edit_content(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    path = Path(ctx.user_data["edit_post_path"])
+    path.write_text(update.message.text, encoding="utf-8")
+    shell("systemctl restart blog")
+    await update.message.reply_text(f"Updated ✓ {path.name}")
+    return ConversationHandler.END
+
+
+async def edit_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled.")
+    return ConversationHandler.END
+
+
 # ── /restart & /status ────────────────────────────────────────────────────────
 
 async def cmd_restart(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -528,9 +584,19 @@ def main():
         fallbacks=[CommandHandler("cancel", pages_cancel)],
     )
 
+    edit_conv = ConversationHandler(
+        entry_points=[CommandHandler("edit", cmd_edit)],
+        states={
+            EDIT_PICK:    [CallbackQueryHandler(edit_pick, pattern=r"^edit:")],
+            EDIT_CONTENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, edit_content)],
+        },
+        fallbacks=[CommandHandler("cancel", edit_cancel)],
+    )
+
     application.add_handler(CommandHandler("start",     cmd_start))
     application.add_handler(new_conv)
     application.add_handler(pages_conv)
+    application.add_handler(edit_conv)
     application.add_handler(CommandHandler("drafts",   cmd_drafts))
     application.add_handler(CallbackQueryHandler(draft_pick,    pattern=r"^draft:"))
     application.add_handler(CallbackQueryHandler(draft_publish, pattern=r"^dpub:"))

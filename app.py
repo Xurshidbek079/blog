@@ -14,6 +14,7 @@ CONTENT = Path("content")
 TRANSLATIONS = {
     "en": {
         "nav_home": "Xurshid",
+        "nav_blog": "Blog",
         "nav_essays": "Essays",
         "nav_projects": "Projects",
         "nav_books": "Books",
@@ -46,6 +47,7 @@ TRANSLATIONS = {
     },
     "uz": {
         "nav_home": "Xurshid",
+        "nav_blog": "Blog",
         "nav_essays": "Maqolalar",
         "nav_projects": "Loyihalar",
         "nav_books": "Kitoblar",
@@ -192,6 +194,12 @@ def set_lang(code):
 @app.route("/")
 def home():
     return render_template("home.html", recent=get_posts()[:5])
+
+
+@app.route("/blog")
+def blog():
+    tag = request.args.get("tag") or None
+    return render_template("essays.html", posts=get_posts(tag), active_tag=tag)
 
 
 @app.route("/essays")

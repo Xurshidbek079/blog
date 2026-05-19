@@ -155,10 +155,15 @@ def parse_post(path: Path) -> dict:
     return meta
 
 
+_LANG_VARIANT = re.compile(r'\.(uz|uz_cyr)\.md$')
+
+
 @lru_cache(maxsize=None)
 def get_slug_map() -> dict:
     result = {}
     for p in (CONTENT / "posts").glob("*.md"):
+        if _LANG_VARIANT.search(p.name):
+            continue
         text = p.read_text(encoding="utf-8")
         if text.startswith("---"):
             parts = text.split("---", 2)
@@ -173,7 +178,8 @@ def get_slug_map() -> dict:
 @lru_cache(maxsize=None)
 def get_posts(tag: str | None = None) -> list[dict]:
     paths = sorted(
-        (CONTENT / "posts").glob("*.md"),
+        [p for p in (CONTENT / "posts").glob("*.md")
+         if not _LANG_VARIANT.search(p.name)],
         key=lambda p: p.stem,
         reverse=True,
     )
@@ -254,7 +260,9 @@ def post(slug):
     path = get_slug_map().get(slug)
     if path is None:
         abort(404)
-    return render_template("post.html", post=parse_post(path))
+    lang = detect_lang()
+    lang_path = path.parent / f"{path.stem}.{lang}.md"
+    return render_template("post.html", post=parse_post(lang_path if lang_path.exists() else path))
 
 
 @app.route("/about")

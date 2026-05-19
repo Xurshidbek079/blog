@@ -25,8 +25,7 @@ CONTENT_DIR    = BLOG_DIR / "content"
  ASK_UZ, ASK_CYR,
  FINAL_CONFIRM) = range(6)
 
-(PAGE_PICK, PAGE_CONTENT,
- PAGE_ASK_UZ, PAGE_ASK_CYR) = range(6, 10)
+(PAGE_PICK, PAGE_LANG, PAGE_CONTENT) = range(6, 9)
 
 PAGES = {
     "About":    "about.md",
@@ -396,75 +395,75 @@ async def page_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     fname = q.data.split(":", 1)[1]
     ctx.user_data["edit_page"] = fname
-    path = CONTENT_DIR / fname
-    current = path.read_text(encoding="utf-8") if path.exists() else "(empty)"
+
+    # YAML pages have no language variants — go straight to content
+    if fname.endswith(".yaml"):
+        path = CONTENT_DIR / fname
+        current = path.read_text(encoding="utf-8") if path.exists() else "(empty)"
+        if len(current) > 3000:
+            current = current[:3000] + "\n…(truncated)"
+        await q.edit_message_text(
+            f"*{fname}* (current):\n\n```\n{current}\n```\n\nSend full new YAML content, or /cancel:",
+            parse_mode="Markdown",
+        )
+        return PAGE_CONTENT
+
+    # Markdown pages: pick language first
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("EN 🇬🇧",        callback_data="plang:en"),
+        InlineKeyboardButton("UZ (Latin)",    callback_data="plang:uz"),
+        InlineKeyboardButton("ЎЗ (Cyrillic)", callback_data="plang:uz_cyr"),
+    ]])
+    await q.edit_message_text(
+        f"*{fname}* — which language to edit?",
+        parse_mode="Markdown",
+        reply_markup=kb,
+    )
+    return PAGE_LANG
+
+
+async def page_lang(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    lang = q.data.split(":", 1)[1]
+    ctx.user_data["edit_lang"] = lang
+
+    fname = ctx.user_data["edit_page"]
+    stem, ext = fname.rsplit(".", 1)
+    if lang == "en":
+        file_path = CONTENT_DIR / fname
+    elif lang == "uz":
+        file_path = CONTENT_DIR / f"{stem}.uz.{ext}"
+    else:
+        file_path = CONTENT_DIR / f"{stem}.uz_cyr.{ext}"
+
+    ctx.user_data["edit_path"] = str(file_path)
+    current = file_path.read_text(encoding="utf-8") if file_path.exists() else "(empty)"
     if len(current) > 3000:
         current = current[:3000] + "\n…(truncated)"
-    fmt = "YAML" if fname.endswith(".yaml") else "Markdown"
+
+    lang_label = {"en": "EN 🇬🇧", "uz": "UZ (Latin)", "uz_cyr": "ЎЗ (Cyrillic)"}[lang]
     await q.edit_message_text(
-        f"*{fname}* (current):\n\n```\n{current}\n```\n\nSend full new {fmt} content, or /cancel:",
+        f"*{fname}* — {lang_label} (current):\n\n```\n{current}\n```\n\nSend new Markdown content, or /cancel:",
         parse_mode="Markdown",
     )
     return PAGE_CONTENT
 
 
 async def page_content(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    fname = ctx.user_data.get("edit_page")
-    ctx.user_data["page_en"] = update.message.text
+    fname = ctx.user_data.get("edit_page", "")
+    new_text = update.message.text
 
-    # YAML: save directly, no language variants
     if fname.endswith(".yaml"):
-        (CONTENT_DIR / fname).write_text(update.message.text, encoding="utf-8")
+        (CONTENT_DIR / fname).write_text(new_text, encoding="utf-8")
         shell("systemctl restart blog")
         await update.message.reply_text(f"Saved ✓ {fname}")
         return ConversationHandler.END
 
-    await update.message.reply_text(
-        "🇺🇿 Uzbek Latin translation?\nSend the text or /skip:"
-    )
-    return PAGE_ASK_UZ
-
-
-async def page_got_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["page_uz"] = update.message.text
-    await update.message.reply_text(
-        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
-    )
-    return PAGE_ASK_CYR
-
-
-async def page_skip_uz(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["page_uz"] = None
-    await update.message.reply_text(
-        "🇺🇿 Uzbek Cyrillic translation?\nSend the text or /skip:"
-    )
-    return PAGE_ASK_CYR
-
-
-async def page_got_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["page_cyr"] = update.message.text
-    return await _save_page(update.message, ctx)
-
-
-async def page_skip_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["page_cyr"] = None
-    return await _save_page(update.message, ctx)
-
-
-async def _save_page(message, ctx):
-    fname = ctx.user_data["edit_page"]
-    stem  = fname.rsplit(".", 1)[0]
-    ext   = fname.rsplit(".", 1)[1]
-    saved = [fname]
-    (CONTENT_DIR / fname).write_text(ctx.user_data["page_en"], encoding="utf-8")
-    if ctx.user_data.get("page_uz"):
-        (CONTENT_DIR / f"{stem}.uz.{ext}").write_text(ctx.user_data["page_uz"], encoding="utf-8")
-        saved.append(f"{stem}.uz.{ext}")
-    if ctx.user_data.get("page_cyr"):
-        (CONTENT_DIR / f"{stem}.uz_cyr.{ext}").write_text(ctx.user_data["page_cyr"], encoding="utf-8")
-        saved.append(f"{stem}.uz_cyr.{ext}")
+    file_path = Path(ctx.user_data["edit_path"])
+    file_path.write_text(new_text, encoding="utf-8")
     shell("systemctl restart blog")
-    await message.reply_text("Saved ✓\n" + "\n".join(saved))
+    await update.message.reply_text(f"Saved ✓ {file_path.name}")
     return ConversationHandler.END
 
 
@@ -523,15 +522,8 @@ def main():
         entry_points=[CommandHandler("pages", cmd_pages)],
         states={
             PAGE_PICK:    [CallbackQueryHandler(page_pick, pattern=r"^page:")],
+            PAGE_LANG:    [CallbackQueryHandler(page_lang, pattern=r"^plang:")],
             PAGE_CONTENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, page_content)],
-            PAGE_ASK_UZ:  [
-                CommandHandler("skip", page_skip_uz),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, page_got_uz),
-            ],
-            PAGE_ASK_CYR: [
-                CommandHandler("skip", page_skip_cyr),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, page_got_cyr),
-            ],
         },
         fallbacks=[CommandHandler("cancel", pages_cancel)],
     )

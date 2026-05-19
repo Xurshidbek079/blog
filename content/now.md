@@ -1,13 +1,13 @@
-*Last updated: January 2025*
+*Last updated: 19.05.2026*
 
 ## Working on
 
-Building things, learning in public.
+Working with my amazing team at [mikroelektronika.uz](https://mikroelektronika.uz) to build safety systems and train control panels for [railway.uz](https://railway.uz).
 
 ## Reading
 
-Add your current book here.
+Reading Uzbek traditional sufism books.
 
 ## Learning
 
-What you're studying or practicing.
+Learning Electronics and Magnetism.

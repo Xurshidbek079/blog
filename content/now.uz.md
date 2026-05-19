@@ -1,13 +1,13 @@
-*Yangilangan: Yanvar 2025*
+*Yangilangan: 19.05.2026*
 
 ## Ustida ishlamoqda
 
-Narsalar quryapman, jamoat oldida o'rganmoqdaman.
+[mikroelektronika.uz](https://mikroelektronika.uz) dagi ajoyib jamoam bilan [railway.uz](https://railway.uz) uchun xavfsizlik tizimlari va poyezd boshqaruv panellari yaratmoqdaman.
 
 ## O'qimoqda
 
-Hozirgi kitobingizni shu yerga qo'shing.
+O'zbek an'anaviy tasavvuf kitoblarini o'qimoqdaman.
 
 ## O'rganmoqda
 
-Nima o'rganayotgan yoki mashq qilayotganingiz.
+Elektronika va Magnetizm o'rganmoqdaman.

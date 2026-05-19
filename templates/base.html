@@ -36,6 +36,7 @@ table{border-collapse:collapse;width:100%;margin-bottom:1.2em;font-size:.9em}
 th,td{border:1px solid #ddd;padding:.4em .7em;text-align:left}
 th{background:#f4f4f4}
 .sitemap{list-style:none;padding:0;columns:2;margin-bottom:1.2em}
+.page-links{display:flex;flex-wrap:nowrap;gap:1.2em;margin:1.5em 0;overflow-x:auto;font-size:.95em}
 .sitemap li{margin-bottom:.4em}
 </style>
 </head>
@@ -54,6 +55,7 @@ th{background:#f4f4f4}
   <span class="lang-toggle">
     <a href="/lang/en"{% if lang == 'en' %} class="active"{% endif %}>EN</a>
     <a href="/lang/uz"{% if lang == 'uz' %} class="active"{% endif %}>UZ</a>
+    <a href="/lang/uz_cyr"{% if lang == 'uz_cyr' %} class="active"{% endif %}>ЎЗ</a>
   </span>
 </nav>
 {% block content %}{% endblock %}

@@ -1,4 +1,4 @@
-# blog
+# Blog
 
 Personal blog built with Flask and Markdown files. No database, no admin panel, no JavaScript.
 

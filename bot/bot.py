@@ -274,6 +274,7 @@ async def draft_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("→ Essay (/essays)", callback_data="dpub:essay"),
         InlineKeyboardButton("→ Blog (/blog)",    callback_data="dpub:blog"),
+        InlineKeyboardButton("→ Poem (/poems)",   callback_data="dpub:poem"),
         InlineKeyboardButton("Cancel",            callback_data="dpub:no"),
     ]])
     await q.edit_message_text(
@@ -289,7 +290,11 @@ async def draft_publish(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if q.data == "dpub:no":
         await q.edit_message_text("Cancelled.")
         return
-    ctx.user_data["draft_dest"] = BLOG_POSTS_DIR if q.data == "dpub:blog" else ESSAYS_DIR
+    ctx.user_data["draft_dest"] = (
+        BLOG_POSTS_DIR if q.data == "dpub:blog" else
+        POEMS_DIR      if q.data == "dpub:poem" else
+        ESSAYS_DIR
+    )
     fname = ctx.user_data.get("draft")
     if not fname:
         await q.edit_message_text("No draft selected.")

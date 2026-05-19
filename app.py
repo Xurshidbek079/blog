@@ -314,7 +314,7 @@ def blog():
     tag = request.args.get("tag") or None
     lang = detect_lang()
     posts = localize_titles(get_blog_posts(tag), lang, get_blog_slug_map())
-    return render_template("essays.html", posts=posts, active_tag=tag, base_url="/blog", page_title="Blog")
+    return render_template("essays.html", posts=posts, active_tag=tag, base_url="/blog", page_title=TRANSLATIONS[lang]["nav_blog"])
 
 
 @app.route("/blog/<slug>")

@@ -155,6 +155,21 @@ def _derive_slug(path: Path, meta: dict) -> str:
     return re.sub(r'^\d{4}-\d{2}-\d{2}-', '', path.stem)
 
 
+def localized_post(base_path: Path, lang: str) -> dict:
+    """Return post dict for the given language, with structural fields from base."""
+    lang_path = base_path.parent / f"{base_path.stem}.{lang}.md"
+    if lang == "en" or not lang_path.exists():
+        return parse_post(base_path)
+    post = parse_post(lang_path)
+    base = parse_post(base_path)
+    # Structural fields always come from the base file so edits propagate
+    post["date"]      = base["date"]
+    post["slug"]      = base["slug"]
+    post["tags"]      = base.get("tags", [])
+    post["published"] = base.get("published", True)
+    return post
+
+
 def parse_post(path: Path) -> dict:
     text = path.read_text(encoding="utf-8")
     if text.startswith("---"):
@@ -371,11 +386,9 @@ def blog_post(slug):
     path = get_blog_slug_map().get(slug)
     if path is None:
         abort(404)
-    lang = detect_lang()
-    lang_path = path.parent / f"{path.stem}.{lang}.md"
     return render_template(
         "post.html",
-        post=parse_post(lang_path if lang_path.exists() else path),
+        post=localized_post(path, detect_lang()),
         back_url="/blog",
         back_label="post_back_blog",
     )
@@ -394,11 +407,9 @@ def post(slug):
     path = get_slug_map().get(slug)
     if path is None:
         abort(404)
-    lang = detect_lang()
-    lang_path = path.parent / f"{path.stem}.{lang}.md"
     return render_template(
         "post.html",
-        post=parse_post(lang_path if lang_path.exists() else path),
+        post=localized_post(path, detect_lang()),
         back_url="/essays",
         back_label="post_back",
     )
@@ -420,11 +431,9 @@ def poem(slug):
     path = get_poems_slug_map().get(slug)
     if path is None:
         abort(404)
-    lang = detect_lang()
-    lang_path = path.parent / f"{path.stem}.{lang}.md"
     return render_template(
         "post.html",
-        post=parse_post(lang_path if lang_path.exists() else path),
+        post=localized_post(path, detect_lang()),
         back_url="/poems",
         back_label="post_back_poems",
         is_poem=True,

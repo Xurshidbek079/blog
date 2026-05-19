@@ -1,5 +1,10 @@
-Menga elektron pochta orqali murojaat qilish eng qulay: **xurshidbekruziyev05@gmail.com**
+Menga murojaat qilishning eng qulay usuli — Telegram: [@xurshidblg](https://t.me/xurshidblg)
 
 Loyihalar, g'oyalar, savollar yoki shunchaki salom aytish uchun xabar yuborishingiz mumkin.
 
-Meni [Telegramda](https://t.me/xurshidblg) ham topishingiz mumkin.
+---
+
+**Boshqa manzillar**
+
+- Elektron pochta: [mail@xurshidr.uz](mailto:mail@xurshidr.uz)
+- Twitter: [@xurshidorg_](https://twitter.com/xurshidorg_)

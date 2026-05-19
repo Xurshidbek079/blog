@@ -285,7 +285,7 @@ def home():
 @app.route("/blog")
 def blog():
     tag = request.args.get("tag") or None
-    return render_template("essays.html", posts=get_blog_posts(tag), active_tag=tag)
+    return render_template("essays.html", posts=get_blog_posts(tag), active_tag=tag, base_url="/blog")
 
 
 @app.route("/blog/<slug>")
@@ -306,7 +306,7 @@ def blog_post(slug):
 @app.route("/essays")
 def essays():
     tag = request.args.get("tag") or None
-    return render_template("essays.html", posts=get_posts(tag), active_tag=tag)
+    return render_template("essays.html", posts=get_posts(tag), active_tag=tag, base_url="/essays")
 
 
 @app.route("/essays/<slug>")

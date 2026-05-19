@@ -10,6 +10,7 @@ app = Flask(__name__)
 app.url_map.strict_slashes = False
 
 CONTENT = Path("content")
+BLOG    = Path("content/blog")
 
 TRANSLATIONS = {
     "en": {
@@ -42,6 +43,7 @@ TRANSLATIONS = {
         "books_want": "Want to read",
         "tools_title": "Tools",
         "post_back": "← Essays",
+        "post_back_blog": "← Blog",
         "not_found_title": "Page not found",
         "not_found_home": "Go home",
     },
@@ -75,6 +77,7 @@ TRANSLATIONS = {
         "books_want": "O'qimoqchi",
         "tools_title": "Qurollar",
         "post_back": "← Insholar",
+        "post_back_blog": "← Blog",
         "not_found_title": "Sahifa topilmadi",
         "not_found_home": "Bosh sahifaga",
     },
@@ -108,6 +111,7 @@ TRANSLATIONS = {
         "books_want": "Ўқимоқчи",
         "tools_title": "Қуроллар",
         "post_back": "← Иншолар",
+        "post_back_blog": "← Блог",
         "not_found_title": "Саҳифа топилмади",
         "not_found_home": "Бош саҳифага",
     },
@@ -191,6 +195,41 @@ def get_posts(tag: str | None = None) -> list[dict]:
 
 
 @lru_cache(maxsize=None)
+def get_blog_slug_map() -> dict:
+    result = {}
+    if not BLOG.exists():
+        return result
+    for p in BLOG.glob("*.md"):
+        if _LANG_VARIANT.search(p.name):
+            continue
+        text = p.read_text(encoding="utf-8")
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) or {}
+        else:
+            meta = {}
+        slug = _derive_slug(p, meta)
+        result[slug] = p
+    return result
+
+
+@lru_cache(maxsize=None)
+def get_blog_posts(tag: str | None = None) -> list[dict]:
+    if not BLOG.exists():
+        return []
+    paths = sorted(
+        [p for p in BLOG.glob("*.md") if not _LANG_VARIANT.search(p.name)],
+        key=lambda p: p.stem,
+        reverse=True,
+    )
+    posts = [parse_post(p) for p in paths]
+    posts = [p for p in posts if p.get("published")]
+    if tag:
+        posts = [p for p in posts if tag in p.get("tags", [])]
+    return posts
+
+
+@lru_cache(maxsize=None)
 def _render_md(path_str: str) -> str:
     path = Path(path_str)
     if not path.exists():
@@ -246,7 +285,22 @@ def home():
 @app.route("/blog")
 def blog():
     tag = request.args.get("tag") or None
-    return render_template("essays.html", posts=get_posts(tag), active_tag=tag)
+    return render_template("essays.html", posts=get_blog_posts(tag), active_tag=tag)
+
+
+@app.route("/blog/<slug>")
+def blog_post(slug):
+    path = get_blog_slug_map().get(slug)
+    if path is None:
+        abort(404)
+    lang = detect_lang()
+    lang_path = path.parent / f"{path.stem}.{lang}.md"
+    return render_template(
+        "post.html",
+        post=parse_post(lang_path if lang_path.exists() else path),
+        back_url="/blog",
+        back_label="post_back_blog",
+    )
 
 
 @app.route("/essays")
@@ -262,7 +316,12 @@ def post(slug):
         abort(404)
     lang = detect_lang()
     lang_path = path.parent / f"{path.stem}.{lang}.md"
-    return render_template("post.html", post=parse_post(lang_path if lang_path.exists() else path))
+    return render_template(
+        "post.html",
+        post=parse_post(lang_path if lang_path.exists() else path),
+        back_url="/essays",
+        back_label="post_back",
+    )
 
 
 @app.route("/about")

@@ -12,12 +12,13 @@ from telegram.ext import (
     filters, ContextTypes,
 )
 
-BOT_TOKEN   = os.environ["BOT_TOKEN"]
-ADMIN_ID    = int(os.environ["ADMIN_ID"])
-BLOG_DIR    = Path("/root/blog")
-POSTS_DIR   = BLOG_DIR / "content/posts"
-DRAFTS_DIR  = BLOG_DIR / "content/drafts"
-CONTENT_DIR = BLOG_DIR / "content"
+BOT_TOKEN      = os.environ["BOT_TOKEN"]
+ADMIN_ID       = int(os.environ["ADMIN_ID"])
+BLOG_DIR       = Path("/root/blog")
+ESSAYS_DIR     = BLOG_DIR / "content/posts"   # /essays on site
+BLOG_POSTS_DIR = BLOG_DIR / "content/blog"    # /blog on site
+DRAFTS_DIR     = BLOG_DIR / "content/drafts"
+CONTENT_DIR    = BLOG_DIR / "content"
 
 # ── Conversation states ────────────────────────────────────────────────────────
 (TITLE, TAGS, CONTENT,
@@ -68,22 +69,35 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(
         "Blog admin\n\n"
-        "/new — write a new post\n"
+        "/newessay — write a new essay (→ /essays)\n"
+        "/newpost — write a new blog post (→ /blog)\n"
         "/drafts — list & publish drafts\n"
-        "/posts — recent published posts\n"
-        "/delete — delete a post\n"
-        "/pages — edit a page (About, Now, Contact, Projects, Books, Tools)\n"
+        "/essays — recent published essays\n"
+        "/posts — recent published blog posts\n"
+        "/delete — delete an essay or blog post\n"
+        "/pages — edit a page (About, Now, Contact, etc.)\n"
         "/restart — restart blog service\n"
         "/status — service status"
     )
 
 
-# ── /new conversation ─────────────────────────────────────────────────────────
+# ── /newessay and /newpost conversations ──────────────────────────────────────
 
-async def new_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def newessay_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return ConversationHandler.END
-    await update.message.reply_text("Title:")
+    ctx.user_data["post_dir"] = ESSAYS_DIR
+    ctx.user_data["post_type"] = "essay"
+    await update.message.reply_text("Essay title:")
+    return TITLE
+
+
+async def newpost_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return ConversationHandler.END
+    ctx.user_data["post_dir"] = BLOG_POSTS_DIR
+    ctx.user_data["post_type"] = "post"
+    await update.message.reply_text("Blog post title:")
     return TITLE
 
 
@@ -141,8 +155,9 @@ async def skip_cyr(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def _show_final_confirm(message, ctx):
-    title  = ctx.user_data["title"]
-    tags   = ctx.user_data["tags"]
+    title     = ctx.user_data["title"]
+    tags      = ctx.user_data["tags"]
+    post_type = ctx.user_data.get("post_type", "essay")
     langs  = "EN"
     if ctx.user_data.get("uz_content"):  langs += " + UZ"
     if ctx.user_data.get("cyr_content"): langs += " + ЎЗ"
@@ -152,7 +167,7 @@ async def _show_final_confirm(message, ctx):
         InlineKeyboardButton("Cancel",        callback_data="new:cancel"),
     ]])
     await message.reply_text(
-        f"*{title}*\nTags: {', '.join(tags) or 'none'}\nLanguages: {langs}",
+        f"*{title}*\nType: {post_type}\nTags: {', '.join(tags) or 'none'}\nLanguages: {langs}",
         parse_mode="Markdown",
         reply_markup=kb,
     )
@@ -180,7 +195,11 @@ async def new_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"published: true\ntags: {tags_yaml}\n---\n\n{body}"
         )
 
-    target = POSTS_DIR if action == "publish" else DRAFTS_DIR
+    post_dir  = ctx.user_data.get("post_dir", ESSAYS_DIR)
+    post_type = ctx.user_data.get("post_type", "essay")
+    route     = "/blog" if post_type == "post" else "/essays"
+
+    target = post_dir if action == "publish" else DRAFTS_DIR
     target.mkdir(parents=True, exist_ok=True)
 
     (target / fname).write_text(frontmatter(ctx.user_data["en_content"]), encoding="utf-8")
@@ -195,9 +214,9 @@ async def new_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if action == "publish":
         shell("systemctl restart blog")
-        await q.edit_message_text(f"Published ✓\n/essays/{slug}")
+        await q.edit_message_text(f"Published ✓\n{route}/{slug}")
     else:
-        await q.edit_message_text(f"Draft saved: {fname}")
+        await q.edit_message_text(f"Draft saved ({post_type}): {fname}")
     return ConversationHandler.END
 
 
@@ -234,16 +253,17 @@ async def draft_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Draft not found.")
         return
     ctx.user_data["draft"] = fname
-    preview  = path.read_text(encoding="utf-8")[:600]
+    preview  = path.read_text(encoding="utf-8")[:500]
     uz_ok    = (DRAFTS_DIR / fname.replace(".md", ".uz.md")).exists()
     cyr_ok   = (DRAFTS_DIR / fname.replace(".md", ".uz_cyr.md")).exists()
     langs    = "EN" + (" + UZ" if uz_ok else "") + (" + ЎЗ" if cyr_ok else "")
     kb = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Publish", callback_data="dpub:yes"),
-        InlineKeyboardButton("Cancel",  callback_data="dpub:no"),
+        InlineKeyboardButton("→ Essay (/essays)", callback_data="dpub:essay"),
+        InlineKeyboardButton("→ Blog (/blog)",    callback_data="dpub:blog"),
+        InlineKeyboardButton("Cancel",            callback_data="dpub:no"),
     ]])
     await q.edit_message_text(
-        f"`{fname}` ({langs})\n\n{preview}", parse_mode="Markdown", reply_markup=kb
+        f"`{fname}` ({langs})\n\n{preview}\n\nPublish to:", parse_mode="Markdown", reply_markup=kb
     )
 
 
@@ -255,31 +275,44 @@ async def draft_publish(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if q.data == "dpub:no":
         await q.edit_message_text("Cancelled.")
         return
+    ctx.user_data["draft_dest"] = BLOG_POSTS_DIR if q.data == "dpub:blog" else ESSAYS_DIR
     fname = ctx.user_data.get("draft")
     if not fname:
         await q.edit_message_text("No draft selected.")
         return
-    POSTS_DIR.mkdir(parents=True, exist_ok=True)
+    dest_dir = ctx.user_data.get("draft_dest", ESSAYS_DIR)
+    dest_dir.mkdir(parents=True, exist_ok=True)
     published = []
     for variant in [fname, fname.replace(".md", ".uz.md"), fname.replace(".md", ".uz_cyr.md")]:
         src = DRAFTS_DIR / variant
         if src.exists():
-            (POSTS_DIR / variant).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+            (dest_dir / variant).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
             published.append(variant)
     shell("systemctl restart blog")
     await q.edit_message_text("Published ✓\n" + "\n".join(published))
 
 
-# ── /posts ────────────────────────────────────────────────────────────────────
+# ── /essays and /posts ────────────────────────────────────────────────────────
+
+async def cmd_essays(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    files = base_posts(ESSAYS_DIR)[:10]
+    if not files:
+        await update.message.reply_text("No essays yet.")
+        return
+    await update.message.reply_text("Recent essays:\n" + "\n".join(f.stem for f in files))
+
 
 async def cmd_posts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
-    files = base_posts(POSTS_DIR)[:10]
+    BLOG_POSTS_DIR.mkdir(parents=True, exist_ok=True)
+    files = base_posts(BLOG_POSTS_DIR)[:10]
     if not files:
-        await update.message.reply_text("No posts yet.")
+        await update.message.reply_text("No blog posts yet.")
         return
-    await update.message.reply_text("Recent posts:\n" + "\n".join(f.stem for f in files))
+    await update.message.reply_text("Recent blog posts:\n" + "\n".join(f.stem for f in files))
 
 
 # ── /delete ───────────────────────────────────────────────────────────────────
@@ -287,15 +320,17 @@ async def cmd_posts(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_delete(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return
-    files = base_posts(POSTS_DIR)
-    if not files:
+    essays    = [("[E] " + f.name, f"del:e:{f.name}") for f in base_posts(ESSAYS_DIR)]
+    blogposts = [("[B] " + f.name, f"del:b:{f.name}") for f in base_posts(BLOG_POSTS_DIR)]
+    all_files = essays + blogposts
+    if not all_files:
         await update.message.reply_text("No posts to delete.")
         return
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton(f.name, callback_data=f"del:{f.name}")]
-        for f in files
+        [InlineKeyboardButton(label, callback_data=cb)]
+        for label, cb in all_files
     ])
-    await update.message.reply_text("Select post to delete:", reply_markup=kb)
+    await update.message.reply_text("[E]=Essay  [B]=Blog post\nSelect to delete:", reply_markup=kb)
 
 
 async def delete_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -303,11 +338,13 @@ async def delete_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     if not is_admin(update):
         return
-    fname = q.data.split(":", 1)[1]
-    if not (POSTS_DIR / fname).exists():
-        await q.edit_message_text("Post not found.")
+    _, kind, fname = q.data.split(":", 2)
+    src_dir = ESSAYS_DIR if kind == "e" else BLOG_POSTS_DIR
+    if not (src_dir / fname).exists():
+        await q.edit_message_text("Not found.")
         return
-    ctx.user_data["delete"] = fname
+    ctx.user_data["delete"]     = fname
+    ctx.user_data["delete_dir"] = src_dir
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("Yes, delete", callback_data="delconf:yes"),
         InlineKeyboardButton("Cancel",      callback_data="delconf:no"),
@@ -326,13 +363,14 @@ async def delete_confirm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if q.data == "delconf:no":
         await q.edit_message_text("Cancelled.")
         return
-    fname = ctx.user_data.get("delete")
+    fname   = ctx.user_data.get("delete")
+    src_dir = ctx.user_data.get("delete_dir", ESSAYS_DIR)
     if not fname:
         await q.edit_message_text("No post selected.")
         return
     deleted = []
     for variant in [fname, fname.replace(".md", ".uz.md"), fname.replace(".md", ".uz_cyr.md")]:
-        p = POSTS_DIR / variant
+        p = src_dir / variant
         if p.exists():
             p.unlink()
             deleted.append(variant)
@@ -457,7 +495,10 @@ def main():
     application = Application.builder().token(BOT_TOKEN).build()
 
     new_conv = ConversationHandler(
-        entry_points=[CommandHandler("new", new_start)],
+        entry_points=[
+            CommandHandler("newessay", newessay_start),
+            CommandHandler("newpost",  newpost_start),
+        ],
         states={
             TITLE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, got_title)],
             TAGS:          [
@@ -495,18 +536,19 @@ def main():
         fallbacks=[CommandHandler("cancel", pages_cancel)],
     )
 
-    application.add_handler(CommandHandler("start",   cmd_start))
+    application.add_handler(CommandHandler("start",     cmd_start))
     application.add_handler(new_conv)
     application.add_handler(pages_conv)
-    application.add_handler(CommandHandler("drafts",  cmd_drafts))
+    application.add_handler(CommandHandler("drafts",   cmd_drafts))
     application.add_handler(CallbackQueryHandler(draft_pick,    pattern=r"^draft:"))
     application.add_handler(CallbackQueryHandler(draft_publish, pattern=r"^dpub:"))
-    application.add_handler(CommandHandler("posts",   cmd_posts))
-    application.add_handler(CommandHandler("delete",  cmd_delete))
+    application.add_handler(CommandHandler("essays",   cmd_essays))
+    application.add_handler(CommandHandler("posts",    cmd_posts))
+    application.add_handler(CommandHandler("delete",   cmd_delete))
     application.add_handler(CallbackQueryHandler(delete_pick,    pattern=r"^del:"))
     application.add_handler(CallbackQueryHandler(delete_confirm, pattern=r"^delconf:"))
-    application.add_handler(CommandHandler("restart", cmd_restart))
-    application.add_handler(CommandHandler("status",  cmd_status))
+    application.add_handler(CommandHandler("restart",  cmd_restart))
+    application.add_handler(CommandHandler("status",   cmd_status))
 
     application.run_polling(drop_pending_updates=True)
 

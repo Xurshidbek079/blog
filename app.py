@@ -163,9 +163,10 @@ def parse_post(path: Path) -> dict:
         body = parts[2]
     else:
         meta, body = {}, text
-    meta["content"] = markdown.markdown(
-        body, extensions=["fenced_code", "tables", "footnotes"]
-    )
+    exts = ["fenced_code", "tables", "footnotes"]
+    if "poems" in path.parts:
+        exts.append("nl2br")
+    meta["content"] = markdown.markdown(body, extensions=exts)
     meta["slug"] = _derive_slug(path, meta)
     meta.setdefault("published", True)
     meta.setdefault("tags", [])
@@ -426,6 +427,7 @@ def poem(slug):
         post=parse_post(lang_path if lang_path.exists() else path),
         back_url="/poems",
         back_label="post_back_poems",
+        is_poem=True,
     )
 
 

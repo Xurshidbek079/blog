@@ -3,6 +3,6 @@
 {% block content %}
 <h1>{{ post.title }}</h1>
 <p class="meta">{{ post.date }}{% if post.tags %} · {% for tag in post.tags %}<a href="/essays?tag={{ tag }}">{{ tag }}</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p>
-{{ post.content | safe }}
+<div{% if is_poem %} class="poem"{% endif %}>{{ post.content | safe }}</div>
 <div class="back"><a href="{{ back_url }}">{{ t[back_label] }}</a></div>
 {% endblock %}

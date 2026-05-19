@@ -185,14 +185,22 @@ def get_posts(tag: str | None = None) -> list[dict]:
 
 
 @lru_cache(maxsize=None)
-def read_md(filename: str) -> str:
-    path = CONTENT / filename
+def _render_md(path_str: str) -> str:
+    path = Path(path_str)
     if not path.exists():
         return ""
     return markdown.markdown(
         path.read_text(encoding="utf-8"),
         extensions=["fenced_code", "tables"],
     )
+
+
+def read_md(filename: str, lang: str = "en") -> str:
+    stem, ext = filename.rsplit(".", 1)
+    lang_path = CONTENT / f"{stem}.{lang}.{ext}"
+    if lang_path.exists():
+        return _render_md(str(lang_path))
+    return _render_md(str(CONTENT / filename))
 
 
 @lru_cache(maxsize=None)
@@ -251,17 +259,20 @@ def post(slug):
 
 @app.route("/about")
 def about():
-    return render_template("page.html", title_key="about_title", content=read_md("about.md"))
+    lang = detect_lang()
+    return render_template("page.html", title_key="about_title", content=read_md("about.md", lang))
 
 
 @app.route("/now")
 def now():
-    return render_template("page.html", title_key="now_title", content=read_md("now.md"))
+    lang = detect_lang()
+    return render_template("page.html", title_key="now_title", content=read_md("now.md", lang))
 
 
 @app.route("/contact")
 def contact():
-    return render_template("page.html", title_key="contact_title", content=read_md("contact.md"))
+    lang = detect_lang()
+    return render_template("page.html", title_key="contact_title", content=read_md("contact.md", lang))
 
 
 @app.route("/projects")

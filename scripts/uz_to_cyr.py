@@ -44,6 +44,9 @@ def _transliterate_chunk(text: str) -> str:
     text = text.translate(SINGLE)
     # Remaining plain apostrophes (ba'zi → баъзи) → ъ
     text = text.replace("'", "ъ")
+    # Word-initial е/Е → э/Э  (Latin 'e' at word-start = Uzbek Э, not Е)
+    text = re.sub(r'\bЕ', 'Э', text)
+    text = re.sub(r'\bе', 'э', text)
     return text
 
 

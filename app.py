@@ -11,12 +11,14 @@ app.url_map.strict_slashes = False
 
 CONTENT = Path("content")
 BLOG    = Path("content/blog")
+POEMS   = Path("content/poems")
 
 TRANSLATIONS = {
     "en": {
         "nav_home": "Main",
         "nav_blog": "Blog",
         "nav_essays": "Essays",
+        "nav_poems": "Poems",
         "nav_projects": "Projects",
         "nav_books": "Books",
         "nav_tools": "Tools",
@@ -44,6 +46,9 @@ TRANSLATIONS = {
         "tools_title": "Tools",
         "post_back": "← Essays",
         "post_back_blog": "← Blog",
+        "post_back_poems": "← Poems",
+        "poems_title": "Poems",
+        "poems_none": "No poems yet.",
         "not_found_title": "Page not found",
         "not_found_home": "Go home",
     },
@@ -51,6 +56,7 @@ TRANSLATIONS = {
         "nav_home": "Asosiy",
         "nav_blog": "Blog",
         "nav_essays": "Insholar",
+        "nav_poems": "She'riyat",
         "nav_projects": "Loyihalar",
         "nav_books": "Kitoblar",
         "nav_tools": "Qurollar",
@@ -78,6 +84,9 @@ TRANSLATIONS = {
         "tools_title": "Qurollar",
         "post_back": "← Insholar",
         "post_back_blog": "← Blog",
+        "post_back_poems": "← She'riyat",
+        "poems_title": "She'riyat",
+        "poems_none": "Hali she'rlar yo'q.",
         "not_found_title": "Sahifa topilmadi",
         "not_found_home": "Bosh sahifaga",
     },
@@ -85,6 +94,7 @@ TRANSLATIONS = {
         "nav_home": "Асосий",
         "nav_blog": "Блог",
         "nav_essays": "Иншолар",
+        "nav_poems": "Шеърият",
         "nav_projects": "Лойиҳалар",
         "nav_books": "Китоблар",
         "nav_tools": "Қуроллар",
@@ -112,6 +122,9 @@ TRANSLATIONS = {
         "tools_title": "Қуроллар",
         "post_back": "← Иншолар",
         "post_back_blog": "← Блог",
+        "post_back_poems": "← Шеърият",
+        "poems_title": "Шеърият",
+        "poems_none": "Ҳали шеърлар йўқ.",
         "not_found_title": "Саҳифа топилмади",
         "not_found_home": "Бош саҳифага",
     },
@@ -219,6 +232,41 @@ def get_blog_posts(tag: str | None = None) -> list[dict]:
         return []
     paths = sorted(
         [p for p in BLOG.glob("*.md") if not _LANG_VARIANT.search(p.name)],
+        key=lambda p: p.stem,
+        reverse=True,
+    )
+    posts = [parse_post(p) for p in paths]
+    posts = [p for p in posts if p.get("published")]
+    if tag:
+        posts = [p for p in posts if tag in p.get("tags", [])]
+    return posts
+
+
+@lru_cache(maxsize=None)
+def get_poems_slug_map() -> dict:
+    result = {}
+    if not POEMS.exists():
+        return result
+    for p in POEMS.glob("*.md"):
+        if _LANG_VARIANT.search(p.name):
+            continue
+        text = p.read_text(encoding="utf-8")
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) or {}
+        else:
+            meta = {}
+        slug = _derive_slug(p, meta)
+        result[slug] = p
+    return result
+
+
+@lru_cache(maxsize=None)
+def get_poems(tag: str | None = None) -> list[dict]:
+    if not POEMS.exists():
+        return []
+    paths = sorted(
+        [p for p in POEMS.glob("*.md") if not _LANG_VARIANT.search(p.name)],
         key=lambda p: p.stem,
         reverse=True,
     )
@@ -352,6 +400,32 @@ def post(slug):
         post=parse_post(lang_path if lang_path.exists() else path),
         back_url="/essays",
         back_label="post_back",
+    )
+
+
+@app.route("/poems")
+def poems():
+    lang = detect_lang()
+    posts = localize_titles(get_poems(), lang, get_poems_slug_map())
+    return render_template(
+        "essays.html", posts=posts, active_tag=None,
+        base_url="/poems",
+        page_title=TRANSLATIONS[lang]["poems_title"],
+    )
+
+
+@app.route("/poems/<slug>")
+def poem(slug):
+    path = get_poems_slug_map().get(slug)
+    if path is None:
+        abort(404)
+    lang = detect_lang()
+    lang_path = path.parent / f"{path.stem}.{lang}.md"
+    return render_template(
+        "post.html",
+        post=parse_post(lang_path if lang_path.exists() else path),
+        back_url="/poems",
+        back_label="post_back_poems",
     )
 
 

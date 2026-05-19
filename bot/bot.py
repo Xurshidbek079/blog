@@ -17,6 +17,7 @@ ADMIN_ID       = int(os.environ["ADMIN_ID"])
 BLOG_DIR       = Path("/root/blog")
 ESSAYS_DIR     = BLOG_DIR / "content/posts"   # /essays on site
 BLOG_POSTS_DIR = BLOG_DIR / "content/blog"    # /blog on site
+POEMS_DIR      = BLOG_DIR / "content/poems"   # /poems on site
 DRAFTS_DIR     = BLOG_DIR / "content/drafts"
 CONTENT_DIR    = BLOG_DIR / "content"
 
@@ -72,6 +73,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "Blog admin\n\n"
         "/newessay — write a new essay (→ /essays)\n"
         "/newpost — write a new blog post (→ /blog)\n"
+        "/newpoem — write a new poem (→ /poems)\n"
         "/edit — edit an existing post or essay\n"
         "/drafts — list & publish drafts\n"
         "/essays — recent published essays\n"
@@ -100,6 +102,16 @@ async def newpost_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["post_dir"] = BLOG_POSTS_DIR
     ctx.user_data["post_type"] = "post"
     await update.message.reply_text("Blog post title:")
+    return TITLE
+
+
+async def newpoem_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return ConversationHandler.END
+    POEMS_DIR.mkdir(parents=True, exist_ok=True)
+    ctx.user_data["post_dir"] = POEMS_DIR
+    ctx.user_data["post_type"] = "poem"
+    await update.message.reply_text("Poem title:")
     return TITLE
 
 
@@ -199,7 +211,7 @@ async def new_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     post_dir  = ctx.user_data.get("post_dir", ESSAYS_DIR)
     post_type = ctx.user_data.get("post_type", "essay")
-    route     = "/blog" if post_type == "post" else "/essays"
+    route     = "/blog" if post_type == "post" else "/poems" if post_type == "poem" else "/essays"
 
     target = post_dir if action == "publish" else DRAFTS_DIR
     target.mkdir(parents=True, exist_ok=True)
@@ -480,9 +492,10 @@ async def pages_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_edit(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update):
         return ConversationHandler.END
-    essays    = [("[E] " + f.stem, f"edit:e:{f.name}") for f in base_posts(ESSAYS_DIR)[:15]]
-    blogposts = [("[B] " + f.stem, f"edit:b:{f.name}") for f in base_posts(BLOG_POSTS_DIR)[:20]]
-    all_files = blogposts + essays
+    essays    = [("[E] " + f.stem, f"edit:e:{f.name}") for f in base_posts(ESSAYS_DIR)[:10]]
+    blogposts = [("[B] " + f.stem, f"edit:b:{f.name}") for f in base_posts(BLOG_POSTS_DIR)[:10]]
+    poemfiles = [("[P] " + f.stem, f"edit:p:{f.name}") for f in base_posts(POEMS_DIR)[:10]] if POEMS_DIR.exists() else []
+    all_files = poemfiles + blogposts + essays
     if not all_files:
         await update.message.reply_text("No posts found.")
         return ConversationHandler.END
@@ -498,7 +511,7 @@ async def edit_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     _, kind, fname = q.data.split(":", 2)
-    src_dir = ESSAYS_DIR if kind == "e" else BLOG_POSTS_DIR
+    src_dir = ESSAYS_DIR if kind == "e" else POEMS_DIR if kind == "p" else BLOG_POSTS_DIR
     path = src_dir / fname
     if not path.exists():
         await q.edit_message_text("File not found.")
@@ -553,6 +566,7 @@ def main():
         entry_points=[
             CommandHandler("newessay", newessay_start),
             CommandHandler("newpost",  newpost_start),
+            CommandHandler("newpoem",  newpoem_start),
         ],
         states={
             TITLE:         [MessageHandler(filters.TEXT & ~filters.COMMAND, got_title)],

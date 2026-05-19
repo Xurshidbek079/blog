@@ -20,6 +20,8 @@ MULTI = [
     ("SH", "Ш"), ("Sh", "Ш"), ("sh", "ш"),
     ("CH", "Ч"), ("Ch", "Ч"), ("ch", "ч"),
     ("NG", "НГ"), ("Ng", "Нг"), ("ng", "нг"),
+    # YE before YO/YU/YA so "ye" is consumed as one unit → е (not й+е)
+    ("YE", "Е"),  ("Ye", "Е"),  ("ye", "е"),
     ("YO", "Ё"),  ("Yo", "Ё"),  ("yo", "ё"),
     ("YU", "Ю"),  ("Yu", "Ю"),  ("yu", "ю"),
     ("YA", "Я"),  ("Ya", "Я"),  ("ya", "я"),
@@ -37,16 +39,19 @@ def _transliterate_chunk(text: str) -> str:
     """Transliterate a plain-text chunk (no URLs or code inside)."""
     # Normalise all apostrophe variants → plain '
     text = text.translate(APOSTROPHES)
-    # Apply multi-char replacements
+    # Apply multi-char replacements (ye→е, yo→ё, etc. before single-char y/e)
     for lat, cyr in MULTI:
         text = text.replace(lat, cyr)
-    # Apply single-char replacements
+    # Word-initial bare Latin e/E → э/Э.  Must run BEFORE SINGLE so that only
+    # the bare 'e' (not 'ye' which MULTI already turned into Cyrillic 'е') is
+    # caught.  At this point any 'е' in the text is Cyrillic (from ye→е above)
+    # and won't match the Latin 'e' pattern.
+    text = re.sub(r'\bE', 'Э', text)
+    text = re.sub(r'\be', 'э', text)
+    # Apply single-char replacements (remaining Latin letters → Cyrillic)
     text = text.translate(SINGLE)
     # Remaining plain apostrophes (ba'zi → баъзи) → ъ
     text = text.replace("'", "ъ")
-    # Word-initial е/Е → э/Э  (Latin 'e' at word-start = Uzbek Э, not Е)
-    text = re.sub(r'\bЕ', 'Э', text)
-    text = re.sub(r'\bе', 'э', text)
     return text
 
 

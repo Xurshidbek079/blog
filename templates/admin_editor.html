@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Write</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif}
+
+/* ── Layout ── */
+.page{
+  max-width:720px;
+  margin:0 auto;
+  padding:40px 24px 80px;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  gap:0;
+}
+
+/* ── Top bar ── */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:40px;
+  font-size:12px;
+  color:#3a3a3a;
+  font-family:system-ui,sans-serif;
+  letter-spacing:.06em;
+}
+.topbar a{color:#3a3a3a;text-decoration:none;transition:color .15s}
+.topbar a:hover{color:#888}
+
+/* ── Fields ── */
+#title{
+  width:100%;
+  background:transparent;
+  border:none;
+  outline:none;
+  color:#f0f0f0;
+  font-family:Georgia,serif;
+  font-size:28px;
+  font-weight:normal;
+  line-height:1.3;
+  resize:none;
+  padding:0;
+  margin-bottom:14px;
+  caret-color:#f0f0f0;
+}
+#title::placeholder{color:#2e2e2e}
+
+#tags{
+  width:100%;
+  background:transparent;
+  border:none;
+  border-bottom:1px solid #1e1e1e;
+  outline:none;
+  color:#666;
+  font-family:system-ui,sans-serif;
+  font-size:13px;
+  padding:0 0 10px;
+  margin-bottom:28px;
+  caret-color:#888;
+}
+#tags::placeholder{color:#2a2a2a}
+#tags:focus{border-bottom-color:#333;color:#999}
+
+/* ── Writing area wrapper ── */
+.editor-wrap{position:relative;flex:1}
+
+#content{
+  width:100%;
+  min-height:420px;
+  height:100%;
+  background:transparent;
+  border:none;
+  outline:none;
+  color:#d4d4d4;
+  font-family:Georgia,serif;
+  font-size:18px;
+  line-height:1.8;
+  resize:none;
+  padding:0;
+  caret-color:#f0f0f0;
+  display:block;
+}
+#content::placeholder{color:#2a2a2a}
+
+/* ── Autocomplete suggestion ── */
+.suggest-bar{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  height:36px;
+  margin-top:10px;
+  padding:0 2px;
+  font-family:system-ui,sans-serif;
+  font-size:13px;
+  min-height:36px;
+}
+.suggest-word{
+  color:#5a8a5a;
+  font-size:15px;
+  font-family:Georgia,serif;
+  letter-spacing:.01em;
+  transition:opacity .1s;
+}
+.suggest-hint{
+  color:#2e2e2e;
+  font-size:11px;
+  letter-spacing:.05em;
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.key-badge{
+  display:inline-block;
+  background:#1a1a1a;
+  border:1px solid #2a2a2a;
+  border-radius:3px;
+  padding:1px 5px;
+  font-size:11px;
+  color:#444;
+  font-family:system-ui,sans-serif;
+}
+.suggest-bar.hidden{opacity:0;pointer-events:none}
+
+/* ── Divider ── */
+.divider{border:none;border-top:1px solid #1a1a1a;margin:14px 0}
+
+/* ── Action buttons ── */
+.actions{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-top:4px;
+}
+.btn{
+  background:#1a1a1a;
+  border:1px solid #252525;
+  border-radius:5px;
+  color:#888;
+  font-family:system-ui,sans-serif;
+  font-size:13px;
+  padding:9px 18px;
+  cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.btn:hover{background:#202020;color:#ccc;border-color:#333}
+.btn.primary{
+  background:#1c2e1c;
+  border-color:#2a402a;
+  color:#6ab06a;
+}
+.btn.primary:hover{background:#223222;color:#7ec47e;border-color:#3a503a}
+
+/* ── Success notice ── */
+.notice{
+  padding:10px 14px;
+  background:#1a2a1a;
+  border:1px solid #2a3a2a;
+  border-radius:5px;
+  font-family:system-ui,sans-serif;
+  font-size:13px;
+  color:#6ab06a;
+  margin-bottom:28px;
+}
+.notice a{color:#8ac88a;text-underline-offset:2px}
+
+/* ── Word count ── */
+.wc{font-size:12px;color:#2e2e2e;margin-left:auto;font-family:system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span>ESSAY</span>
+    <a href="/{{ ap }}/logout">logout</a>
+  </div>
+
+  <!-- Success notice -->
+  {% if ok %}
+  <div class="notice">
+    {% if draft %}
+      Draft saved. <a href="/{{ ap }}/write">New essay</a>
+    {% else %}
+      Published → <a href="/essays/{{ slug }}">/essays/{{ slug }}</a> &nbsp;·&nbsp;
+      <a href="/{{ ap }}/write">New essay</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Write form -->
+  <form method="post" action="/{{ ap }}/publish" id="form">
+
+    <textarea id="title" name="title" rows="1"
+      placeholder="Title" autocomplete="off" spellcheck="false"></textarea>
+
+    <input id="tags" name="tags" type="text"
+      placeholder="tags: uzbek, hayot" autocomplete="off" spellcheck="false">
+
+    <div class="editor-wrap">
+      <textarea id="content" name="content"
+        placeholder="Yozing..." autocomplete="off" spellcheck="false"></textarea>
+    </div>
+
+    <!-- Autocomplete bar -->
+    <div class="suggest-bar hidden" id="suggestBar">
+      <span class="suggest-word" id="suggestWord"></span>
+      <span class="suggest-hint">
+        <span class="key-badge">Tab</span> to complete
+      </span>
+    </div>
+
+    <hr class="divider">
+
+    <div class="actions">
+      <button type="submit" name="action" value="publish" class="btn primary">Publish essay</button>
+      <button type="submit" name="action" value="draft" class="btn">Save draft</button>
+      <span class="wc" id="wc"></span>
+    </div>
+
+  </form>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const ADMIN_PATH = {{ ap | tojson }};
+
+// ── Word corpus ───────────────────────────────────────────────────────────────
+let WORDS = [];
+
+async function loadWords() {
+  try {
+    const r = await fetch(`/${ADMIN_PATH}/words`);
+    const d = await r.json();
+    WORDS = d.words || [];
+  } catch(e) { /* offline, no autocomplete */ }
+}
+
+// Normalize apostrophe variants so matching works regardless of keyboard
+function norm(s) {
+  return s.replace(/[ʻʼʼʻʼ‘’''`]/g, "'").toLowerCase();
+}
+
+// ── Autocomplete state ────────────────────────────────────────────────────────
+let currentPartial = '';
+let currentSuggestion = '';
+
+function extractPartial(textarea) {
+  const pos = textarea.selectionStart;
+  const before = textarea.value.slice(0, pos);
+  // Current word: sequence of word chars + apostrophe up to cursor
+  const m = before.match(/[a-zA-Z'ʻʼʼʻʼ‘’]+$/);
+  return m ? m[0] : '';
+}
+
+function findBest(partial) {
+  if (partial.length < 2) return '';
+  const n = norm(partial);
+  // Exact prefix match, skip words identical to partial
+  const hit = WORDS.find(w => w.startsWith(n) && w !== n);
+  return hit || '';
+}
+
+const bar  = document.getElementById('suggestBar');
+const word = document.getElementById('suggestWord');
+
+function showSuggestion(partial, suggestion) {
+  currentPartial = partial;
+  currentSuggestion = suggestion;
+  if (suggestion) {
+    // Show only the completion suffix in lighter color, full word in label
+    word.textContent = suggestion;
+    bar.classList.remove('hidden');
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function clearSuggestion() {
+  currentPartial = '';
+  currentSuggestion = '';
+  bar.classList.add('hidden');
+}
+
+function applySuggestion(textarea) {
+  if (!currentSuggestion) return;
+  const pos = textarea.selectionStart;
+  const before = textarea.value.slice(0, pos - currentPartial.length);
+  const after  = textarea.value.slice(pos);
+  textarea.value = before + currentSuggestion + after;
+  const newPos = before.length + currentSuggestion.length;
+  textarea.setSelectionRange(newPos, newPos);
+  clearSuggestion();
+  updateWC(textarea);
+}
+
+// ── Title auto-resize ─────────────────────────────────────────────────────────
+const titleEl = document.getElementById('title');
+function resizeTitle() {
+  titleEl.style.height = 'auto';
+  titleEl.style.height = titleEl.scrollHeight + 'px';
+}
+titleEl.addEventListener('input', resizeTitle);
+
+// ── Word count ────────────────────────────────────────────────────────────────
+const wcEl = document.getElementById('wc');
+function updateWC(el) {
+  const words = el.value.trim().split(/\s+/).filter(Boolean).length;
+  wcEl.textContent = words ? `${words} so'z` : '';
+}
+
+// ── Main textarea ─────────────────────────────────────────────────────────────
+const content = document.getElementById('content');
+
+content.addEventListener('input', () => {
+  const partial = extractPartial(content);
+  const sug = findBest(partial);
+  showSuggestion(partial, sug);
+  updateWC(content);
+});
+
+content.addEventListener('keydown', e => {
+  // Tab: accept suggestion or (if no suggestion) insert two spaces
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (currentSuggestion) {
+      applySuggestion(content);
+    } else {
+      // insert 2 spaces as soft tab
+      const pos = content.selectionStart;
+      content.value = content.value.slice(0, pos) + '  ' + content.value.slice(pos);
+      content.setSelectionRange(pos + 2, pos + 2);
+    }
+    return;
+  }
+  // Escape: dismiss suggestion
+  if (e.key === 'Escape') {
+    clearSuggestion();
+    return;
+  }
+  // Arrow keys / navigation: clear suggestion
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+    clearSuggestion();
+  }
+});
+
+// Clear suggestion on click (cursor moved)
+content.addEventListener('click', clearSuggestion);
+
+// ── Prevent accidental form submit on Enter in title field ────────────────────
+titleEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    content.focus();
+  }
+});
+
+// ── Confirm before leaving with unsaved content ───────────────────────────────
+let submitted = false;
+document.getElementById('form').addEventListener('submit', () => { submitted = true; });
+window.addEventListener('beforeunload', e => {
+  if (!submitted && content.value.trim()) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadWords();
+resizeTitle();
+</script>
+</body>
+</html>

@@ -1,8 +1,12 @@
+import os
 import re
+import collections
+import hashlib
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 from datetime import date, datetime, timezone
-from flask import Flask, render_template, abort, request, Response, redirect
+from flask import Flask, render_template, abort, request, Response, redirect, session
 import markdown
 import yaml
 
@@ -12,6 +16,76 @@ app.url_map.strict_slashes = False
 CONTENT = Path("content")
 BLOG    = Path("content/blog")
 POEMS   = Path("content/poems")
+
+# ── Admin config ──────────────────────────────────────────────────────────────
+_ADMIN_PATH = os.environ.get("ADMIN_PATH", "").strip("/")
+_ADMIN_PASS = os.environ.get("ADMIN_PASSWORD", "")
+
+# Stable secret key so sessions survive gunicorn restarts
+_secret_src = os.environ.get("SECRET_KEY") or _ADMIN_PASS
+app.secret_key = hashlib.sha256(_secret_src.encode()).digest() if _secret_src else os.urandom(24)
+
+
+# ── Uzbek word corpus (built once at startup from blog posts) ─────────────────
+def _build_uzbek_wordlist() -> list[str]:
+    freq: collections.Counter = collections.Counter()
+
+    seed = [
+        "va", "ham", "lekin", "ammo", "biroq", "agar", "chunki", "garchi",
+        "bilan", "uchun", "haqida", "bo'yicha", "keyin", "oldin", "hozir",
+        "juda", "ancha", "biroz", "ko'p", "kam", "hatto", "albatta", "aslida",
+        "shunday", "bunday", "qanday", "nima", "kim", "qachon", "qayerda",
+        "men", "sen", "biz", "siz", "ular", "o'zi", "o'zim", "o'zing",
+        "bu", "shu", "u", "har", "hech", "ba'zi", "barcha", "ko'pchilik",
+        "bo'ladi", "bo'lgan", "bo'lsa", "bo'lib", "bo'lmoq", "bo'lishi",
+        "qiladi", "qilgan", "qilsa", "qilib", "qilmoq", "qilishi",
+        "keladi", "kelgan", "kelsa", "kelib", "kelmoq",
+        "ko'radi", "ko'rgan", "ko'rsa", "ko'rib", "ko'rmoq",
+        "biladi", "bilgan", "bilsa", "bilib", "bilmoq",
+        "aytadi", "aytgan", "aytsa", "aytib", "aytmoq",
+        "o'qiydi", "o'qigan", "o'qisa", "o'qib", "o'qimoq",
+        "yozadi", "yozgan", "yozsa", "yozib", "yozmoq",
+        "inson", "odam", "kishi", "hayot", "vaqt", "kun", "yil", "oy",
+        "dunyo", "joy", "ish", "fikr", "so'z", "kitob", "bilim", "ilm",
+        "o'rganish", "rivojlanish", "muvaffaqiyat", "muammo", "yechim",
+        "imkoniyat", "zaruriyat", "mas'uliyat", "ijodiyot",
+        "yaxshi", "yomon", "katta", "kichik", "yangi", "eski", "muhim",
+        "qiziq", "oson", "qiyin", "to'g'ri", "noto'g'ri", "oddiy",
+        "sekin", "tez", "doim", "deb", "degan", "deya",
+        "masalan", "ya'ni", "ayniqsa", "umuman", "asosan", "avvalo",
+        "birinchi", "ikkinchi", "oxirgi", "eng", "faqat", "balki",
+        "lekin", "shuning", "uchun", "sabab", "natija", "holda",
+        "o'zini", "o'ziga", "o'zimiz", "o'zingiz", "o'zlariga",
+        "shuni", "buni", "uning", "bizning", "sizning", "ularning",
+        "qo'ymoq", "olmoq", "bermoq", "topmoq", "ko'rsatmoq",
+        "ishlaydi", "ishlagan", "ishlasa", "ishlamoq",
+        "o'ylaydi", "o'ylagan", "o'ylasa", "o'ylamoq",
+        "harakat", "natija", "sabab", "maqsad", "yo'l", "usul",
+        "muhokama", "tahlil", "xulosа", "fikrlash", "mulohaza",
+        "odatda", "ba'zan", "ko'pincha", "kamdan-kam", "hech qachon",
+        "shunaqa", "shuncha", "buncha", "qanchadan", "qanchalik",
+    ]
+    for w in seed:
+        freq[w] += 8
+
+    if BLOG.exists():
+        for p in BLOG.glob("*.md"):
+            if _LANG_VARIANT.search(p.name):
+                continue
+            text = p.read_text(encoding="utf-8")
+            body = text.split("---", 2)[2] if text.startswith("---") else text
+            raw_words = re.findall(r"[a-zA-Zʻʼʼ''][a-zA-Zʻʼʼ'']*", body)
+            freq.update(
+                re.sub(r"[ʻʼʼ‘’]", "'", w).lower()
+                for w in raw_words
+                if 3 <= len(w) <= 25
+            )
+
+    # Keep words that appear at least twice (seed words already boosted)
+    return [w for w, c in freq.most_common(4000) if c >= 2]
+
+
+_UZBEK_WORDS: list[str] = []  # populated after _LANG_VARIANT is defined below
 
 TRANSLATIONS = {
     "en": {
@@ -189,6 +263,9 @@ def parse_post(path: Path) -> dict:
 
 
 _LANG_VARIANT = re.compile(r'\.(uz|uz_cyr)\.md$')
+
+# Build wordlist now that _LANG_VARIANT is defined
+_UZBEK_WORDS = _build_uzbek_wordlist()
 
 
 @lru_cache(maxsize=None)
@@ -507,6 +584,81 @@ def sitemap():
 @app.errorhandler(404)
 def not_found(e):
     return render_template("404.html"), 404
+
+
+# ── Admin panel ───────────────────────────────────────────────────────────────
+def _is_admin() -> bool:
+    return bool(_ADMIN_PASS) and session.get("_adm") is True
+
+
+def _admin_slugify(text: str) -> str:
+    text = re.sub(r"[ʻʼʼ''‘’`]", "", text.lower())
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+
+
+if _ADMIN_PATH and _ADMIN_PASS:
+
+    @app.route(f"/{_ADMIN_PATH}", methods=["GET", "POST"])
+    def _admin_login():
+        if _is_admin():
+            return redirect(f"/{_ADMIN_PATH}/write")
+        error = False
+        if request.method == "POST":
+            if request.form.get("p", "") == _ADMIN_PASS:
+                session["_adm"] = True
+                return redirect(f"/{_ADMIN_PATH}/write")
+            error = True
+        return render_template("admin_login.html", error=error, ap=_ADMIN_PATH)
+
+    @app.route(f"/{_ADMIN_PATH}/write")
+    def _admin_write():
+        if not _is_admin():
+            return redirect(f"/{_ADMIN_PATH}")
+        ok   = request.args.get("ok")
+        slug = request.args.get("slug", "")
+        draft = request.args.get("draft", "0") == "1"
+        return render_template("admin_editor.html", ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft)
+
+    @app.route(f"/{_ADMIN_PATH}/publish", methods=["POST"])
+    def _admin_publish():
+        if not _is_admin():
+            abort(403)
+        title   = request.form.get("title", "").strip()
+        tags_r  = request.form.get("tags", "").strip()
+        content = request.form.get("content", "").strip()
+        action  = request.form.get("action", "publish")
+        if not title or not content:
+            abort(400)
+        slug     = _admin_slugify(title)
+        date_str = date.today().isoformat()
+        fname    = f"{date_str}-{slug}.md"
+        tags     = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
+        tags_yaml = "[" + ", ".join(tags) + "]" if tags else "[]"
+        fm = (
+            f'---\ntitle: "{title}"\ndate: {date_str}\nslug: {slug}\n'
+            f"published: true\ntags: {tags_yaml}\n---\n\n{content}\n"
+        )
+        if action == "draft":
+            target = CONTENT / "drafts"
+        else:
+            target = CONTENT / "posts"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / fname).write_text(fm, encoding="utf-8")
+        if action == "publish":
+            subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
+        is_draft = "1" if action == "draft" else "0"
+        return redirect(f"/{_ADMIN_PATH}/write?ok=1&slug={slug}&draft={is_draft}")
+
+    @app.route(f"/{_ADMIN_PATH}/words")
+    def _admin_words():
+        if not _is_admin():
+            abort(403)
+        return {"words": _UZBEK_WORDS}
+
+    @app.route(f"/{_ADMIN_PATH}/logout")
+    def _admin_logout():
+        session.pop("_adm", None)
+        return redirect(f"/{_ADMIN_PATH}")
 
 
 if __name__ == "__main__":

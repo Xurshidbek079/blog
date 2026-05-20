@@ -596,6 +596,52 @@ def _admin_slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
+def _load_essays_meta() -> list[dict]:
+    """Return lightweight list of all essays for the admin sidebar."""
+    posts_dir = CONTENT / "posts"
+    if not posts_dir.exists():
+        return []
+    result = []
+    for p in sorted(posts_dir.glob("*.md"), reverse=True):
+        if _LANG_VARIANT.search(p.name):
+            continue
+        text = p.read_text(encoding="utf-8")
+        meta: dict = {}
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) or {}
+        slug = meta.get("slug") or re.sub(r'^\d{4}-\d{2}-\d{2}-', '', p.stem)
+        result.append({
+            "title":     meta.get("title", p.stem),
+            "slug":      str(slug),
+            "date":      str(meta.get("date", "")),
+            "published": meta.get("published", True),
+            "filename":  p.name,
+        })
+    return result
+
+
+def _find_essay(slug: str):
+    """Return (path, meta, body) for an essay matching slug, or (None, {}, '')."""
+    posts_dir = CONTENT / "posts"
+    if not posts_dir.exists():
+        return None, {}, ""
+    for p in posts_dir.glob("*.md"):
+        if _LANG_VARIANT.search(p.name):
+            continue
+        text = p.read_text(encoding="utf-8")
+        meta: dict = {}
+        body = text
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) or {}
+            body = parts[2].lstrip("\n")
+        file_slug = meta.get("slug") or re.sub(r'^\d{4}-\d{2}-\d{2}-', '', p.stem)
+        if str(file_slug) == slug:
+            return p, meta, body
+    return None, {}, ""
+
+
 if _ADMIN_PATH and _ADMIN_PASS:
 
     @app.route(f"/{_ADMIN_PATH}", methods=["GET", "POST"])
@@ -614,10 +660,35 @@ if _ADMIN_PATH and _ADMIN_PASS:
     def _admin_write():
         if not _is_admin():
             return redirect(f"/{_ADMIN_PATH}")
-        ok   = request.args.get("ok")
-        slug = request.args.get("slug", "")
+        ok    = request.args.get("ok")
+        slug  = request.args.get("slug", "")
         draft = request.args.get("draft", "0") == "1"
-        return render_template("admin_editor.html", ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft)
+        return render_template(
+            "admin_editor.html",
+            ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft,
+            edit_mode=False, essays=_load_essays_meta(),
+            edit_title="", edit_tags="", edit_content="", edit_slug="",
+        )
+
+    @app.route(f"/{_ADMIN_PATH}/edit/<slug>")
+    def _admin_edit(slug):
+        if not _is_admin():
+            return redirect(f"/{_ADMIN_PATH}")
+        path, meta, body = _find_essay(slug)
+        if path is None:
+            abort(404)
+        tags_str = ", ".join(str(t) for t in meta.get("tags", []))
+        ok = request.args.get("ok")
+        return render_template(
+            "admin_editor.html",
+            ap=_ADMIN_PATH, ok=ok, slug=slug, draft=False,
+            edit_mode=True, essays=[],
+            edit_title=meta.get("title", ""),
+            edit_tags=tags_str,
+            edit_content=body,
+            edit_slug=slug,
+            edit_filename=path.name,
+        )
 
     @app.route(f"/{_ADMIN_PATH}/publish", methods=["POST"])
     def _admin_publish():
@@ -629,25 +700,54 @@ if _ADMIN_PATH and _ADMIN_PASS:
         action  = request.form.get("action", "publish")
         if not title or not content:
             abort(400)
-        slug     = _admin_slugify(title)
-        date_str = date.today().isoformat()
-        fname    = f"{date_str}-{slug}.md"
-        tags     = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
+        slug      = _admin_slugify(title)
+        date_str  = date.today().isoformat()
+        fname     = f"{date_str}-{slug}.md"
+        tags      = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
         tags_yaml = "[" + ", ".join(tags) + "]" if tags else "[]"
         fm = (
             f'---\ntitle: "{title}"\ndate: {date_str}\nslug: {slug}\n'
             f"published: true\ntags: {tags_yaml}\n---\n\n{content}\n"
         )
-        if action == "draft":
-            target = CONTENT / "drafts"
-        else:
-            target = CONTENT / "posts"
+        target = (CONTENT / "drafts") if action == "draft" else (CONTENT / "posts")
         target.mkdir(parents=True, exist_ok=True)
         (target / fname).write_text(fm, encoding="utf-8")
         if action == "publish":
             subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
         is_draft = "1" if action == "draft" else "0"
         return redirect(f"/{_ADMIN_PATH}/write?ok=1&slug={slug}&draft={is_draft}")
+
+    @app.route(f"/{_ADMIN_PATH}/save", methods=["POST"])
+    def _admin_save():
+        if not _is_admin():
+            abort(403)
+        slug    = request.form.get("_slug", "").strip()
+        fname   = request.form.get("_filename", "").strip()
+        title   = request.form.get("title", "").strip()
+        tags_r  = request.form.get("tags", "").strip()
+        content = request.form.get("content", "").strip()
+        if not slug or not fname or not title or not content:
+            abort(400)
+        path = CONTENT / "posts" / fname
+        if not path.exists():
+            abort(404)
+        # Preserve original date and slug — only update title, tags, body
+        text = path.read_text(encoding="utf-8")
+        meta: dict = {}
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            meta = yaml.safe_load(parts[1]) or {}
+        orig_slug    = meta.get("slug") or re.sub(r'^\d{4}-\d{2}-\d{2}-', '', path.stem)
+        orig_date    = str(meta.get("date", date.today().isoformat()))
+        tags         = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
+        tags_yaml    = "[" + ", ".join(tags) + "]" if tags else "[]"
+        fm = (
+            f'---\ntitle: "{title}"\ndate: {orig_date}\nslug: {orig_slug}\n'
+            f"published: true\ntags: {tags_yaml}\n---\n\n{content}\n"
+        )
+        path.write_text(fm, encoding="utf-8")
+        subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
+        return redirect(f"/{_ADMIN_PATH}/edit/{orig_slug}?ok=1")
 
     @app.route(f"/{_ADMIN_PATH}/words")
     def _admin_words():

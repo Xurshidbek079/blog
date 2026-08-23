@@ -6,7 +6,7 @@
 <title>{% if edit_mode %}Edit — {{ edit_title }}{% else %}Write{% endif %}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif}
+html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
 
 .page{
   max-width:720px;
@@ -24,19 +24,19 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   align-items:center;
   margin-bottom:32px;
   font-size:12px;
-  color:#3a3a3a;
+  color:#999;
   font-family:system-ui,sans-serif;
   letter-spacing:.06em;
 }
 .topbar-left{display:flex;align-items:center;gap:14px}
-.topbar a{color:#3a3a3a;text-decoration:none;transition:color .15s}
-.topbar a:hover{color:#888}
-.topbar .sep{color:#222}
+.topbar a{color:#666;text-decoration:none;transition:color .15s}
+.topbar a:hover{color:#00e;text-decoration:underline}
+.topbar .sep{color:#ccc}
 
 /* ── Essay list (write mode) ── */
 .essay-list{
   margin-bottom:32px;
-  border:1px solid #1a1a1a;
+  border:1px solid #ddd;
   border-radius:6px;
   overflow:hidden;
 }
@@ -45,15 +45,15 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   justify-content:space-between;
   align-items:center;
   padding:10px 14px;
-  background:#111;
+  background:#f4f4f4;
   font-family:system-ui,sans-serif;
   font-size:11px;
-  color:#444;
+  color:#666;
   letter-spacing:.06em;
   cursor:pointer;
   user-select:none;
 }
-.essay-list-header:hover{color:#777}
+.essay-list-header:hover{color:#111}
 .essay-list-body{display:none}
 .essay-list-body.open{display:block}
 .essay-item{
@@ -61,14 +61,14 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   justify-content:space-between;
   align-items:center;
   padding:9px 14px;
-  border-top:1px solid #161616;
+  border-top:1px solid #eee;
   gap:12px;
 }
-.essay-item:hover{background:#111}
+.essay-item:hover{background:#fafafa}
 .essay-item-title{
   font-family:Georgia,serif;
   font-size:14px;
-  color:#aaa;
+  color:#111;
   flex:1;
   white-space:nowrap;
   overflow:hidden;
@@ -77,27 +77,28 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
 .essay-item-date{
   font-family:system-ui,sans-serif;
   font-size:11px;
-  color:#333;
+  color:#999;
   white-space:nowrap;
 }
 .essay-item-edit{
   font-family:system-ui,sans-serif;
   font-size:11px;
-  color:#3a5a3a;
+  color:#00e;
   text-decoration:none;
   padding:3px 8px;
-  border:1px solid #1e2e1e;
+  border:1px solid #ccd;
   border-radius:3px;
   white-space:nowrap;
-  transition:color .15s,border-color .15s;
+  transition:background .15s,border-color .15s;
 }
-.essay-item-edit:hover{color:#6ab06a;border-color:#2a402a}
+.essay-item-edit:hover{background:#eef;border-color:#aab}
 .draft-badge{
   font-size:10px;
-  color:#554422;
+  color:#8a6d3b;
   font-family:system-ui,sans-serif;
   padding:1px 5px;
-  border:1px solid #332211;
+  border:1px solid #e4d5b7;
+  background:#fdf6e3;
   border-radius:2px;
 }
 
@@ -105,19 +106,19 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
 .edit-banner{
   font-family:system-ui,sans-serif;
   font-size:12px;
-  color:#3a5a3a;
+  color:#555;
   margin-bottom:28px;
   padding:10px 14px;
-  background:#0f1a0f;
-  border:1px solid #1a2e1a;
+  background:#f4f4f4;
+  border:1px solid #ddd;
   border-radius:5px;
   display:flex;
   align-items:center;
   gap:8px;
 }
-.edit-banner span{color:#5a8a5a}
-.edit-banner a{color:#3a5a3a;text-decoration:none}
-.edit-banner a:hover{color:#6ab06a}
+.edit-banner span{color:#666}
+.edit-banner a{color:#00e;text-decoration:none}
+.edit-banner a:hover{text-decoration:underline}
 
 /* ── Fields ── */
 #title{
@@ -125,7 +126,7 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   background:transparent;
   border:none;
   outline:none;
-  color:#f0f0f0;
+  color:#111;
   font-family:Georgia,serif;
   font-size:28px;
   font-weight:normal;
@@ -133,25 +134,25 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   resize:none;
   padding:0;
   margin-bottom:14px;
-  caret-color:#f0f0f0;
+  caret-color:#111;
 }
-#title::placeholder{color:#2e2e2e}
+#title::placeholder{color:#ccc}
 
 #tags{
   width:100%;
   background:transparent;
   border:none;
-  border-bottom:1px solid #1e1e1e;
+  border-bottom:1px solid #ddd;
   outline:none;
   color:#666;
   font-family:system-ui,sans-serif;
   font-size:13px;
   padding:0 0 10px;
   margin-bottom:28px;
-  caret-color:#888;
+  caret-color:#111;
 }
-#tags::placeholder{color:#2a2a2a}
-#tags:focus{border-bottom-color:#333;color:#999}
+#tags::placeholder{color:#ccc}
+#tags:focus{border-bottom-color:#999;color:#333}
 
 /* ── Writing area ── */
 .editor-wrap{position:relative;flex:1}
@@ -161,30 +162,30 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   background:transparent;
   border:none;
   outline:none;
-  color:#d4d4d4;
+  color:#111;
   font-family:Georgia,serif;
   font-size:18px;
   line-height:1.8;
   resize:none;
   padding:0;
-  caret-color:#f0f0f0;
+  caret-color:#111;
   display:block;
 }
-#content::placeholder{color:#2a2a2a}
+#content::placeholder{color:#ccc}
 
 /* ── Divider ── */
-.divider{border:none;border-top:1px solid #1a1a1a;margin:14px 0}
+.divider{border:none;border-top:1px solid #ddd;margin:14px 0}
 
 /* ── Buttons ── */
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px}
 .btn{
-  background:#1a1a1a;border:1px solid #252525;border-radius:5px;color:#888;
+  background:#f4f4f4;border:1px solid #ddd;border-radius:5px;color:#333;
   font-family:system-ui,sans-serif;font-size:13px;padding:9px 18px;cursor:pointer;
   transition:background .15s,color .15s,border-color .15s;
 }
-.btn:hover{background:#202020;color:#ccc;border-color:#333}
-.btn.primary{background:#1c2e1c;border-color:#2a402a;color:#6ab06a}
-.btn.primary:hover{background:#223222;color:#7ec47e;border-color:#3a503a}
+.btn:hover{background:#ececec;color:#111;border-color:#bbb}
+.btn.primary{background:#111;border-color:#111;color:#fff}
+.btn.primary:hover{background:#333;border-color:#333;color:#fff}
 
 /* ── Notices ── */
 .notice{
@@ -192,13 +193,33 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   font-family:system-ui,sans-serif;font-size:13px;
   margin-bottom:28px;
 }
-.notice.success{background:#1a2a1a;border:1px solid #2a3a2a;color:#6ab06a}
-.notice.error{background:#2a1a1a;border:1px solid #3a2a2a;color:#c07a7a}
-.notice a{color:#8ac88a;text-underline-offset:2px}
-.notice code{font-family:ui-monospace,monospace;font-size:12px;color:#8ac88a}
+.notice.success{background:#f0f6f0;border:1px solid #cfe0cf;color:#2f5d2f}
+.notice.error{background:#fdf3f3;border:1px solid #e6cccc;color:#8a3232}
+.notice a{color:#00e;text-underline-offset:2px}
+.notice code{font-family:ui-monospace,monospace;font-size:12px;color:#2f5d2f}
+
+/* ── Image upload ── */
+.editor-wrap.dragover{
+  outline:1px dashed #999;
+  outline-offset:10px;
+  border-radius:4px;
+}
+.imgbtn{
+  background:none;border:none;padding:0;cursor:pointer;
+  font-family:system-ui,sans-serif;font-size:12px;color:#00e;
+  text-decoration:underline;text-underline-offset:2px;
+  transition:color .15s;
+}
+.imgbtn:hover{color:#111}
+.imghint{
+  font-family:system-ui,sans-serif;font-size:11px;color:#999;
+  margin:10px 0 0;
+}
+.imghint.busy{color:#2f5d2f}
+.imghint.failed{color:#8a3232}
 
 /* ── Word count ── */
-.wc{font-size:12px;color:#2e2e2e;margin-left:auto;font-family:system-ui,sans-serif}
+.wc{font-size:12px;color:#bbb;margin-left:auto;font-family:system-ui,sans-serif}
 </style>
 </head>
 <body>
@@ -234,8 +255,9 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
         <div class="essay-item">
           <span class="essay-item-title">{{ e.title }}</span>
           <span class="essay-item-date">{{ e.date }}</span>
-          {% if not e.published %}<span class="draft-badge">unpublished</span>{% endif %}
-          <a class="essay-item-edit" href="/{{ ap }}/edit/{{ e.slug }}{% if kind == 'essay' %}?kind=essay{% endif %}">Edit</a>
+          {% if e.draft %}<span class="draft-badge">draft</span>
+          {% elif not e.published %}<span class="draft-badge">unpublished</span>{% endif %}
+          <a class="essay-item-edit" href="/{{ ap }}/edit/{{ e.slug }}{% if kind == 'essay' %}?kind=essay{% elif e.draft %}?draft=1{% endif %}">Edit</a>
         </div>
         {% endfor %}
       </div>
@@ -248,7 +270,9 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
   <div class="edit-banner">
     <span>Editing:</span> {{ edit_title }}
     &nbsp;·&nbsp;
-    {% if edit_published %}
+    {% if is_draft %}
+      <span>draft — not published yet</span>
+    {% elif edit_published %}
       <a href="{{ live_url }}" target="_blank">↗ view live</a>
     {% else %}
       <span>unpublished — not reachable yet</span>
@@ -296,6 +320,7 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
     {% if edit_mode %}
       <input type="hidden" name="_slug"     value="{{ edit_slug }}">
       <input type="hidden" name="_filename" value="{{ edit_filename }}">
+      <input type="hidden" name="_draft"    value="{{ '1' if is_draft else '0' }}">
     {% endif %}
 
     <textarea id="title" name="title" rows="1"
@@ -306,18 +331,24 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
       placeholder="tags: embedded, python" autocomplete="off" spellcheck="false"
       value="{{ edit_tags }}">
 
-    <div class="editor-wrap">
+    <div class="editor-wrap" id="editorWrap">
       <textarea id="content" name="content"
         placeholder="Write..." autocomplete="off" spellcheck="false"
       >{{ edit_content }}</textarea>
     </div>
+
+    <p class="imghint" id="imgHint">
+      <button type="button" class="imgbtn" id="imgBtn">+ image</button>
+      &nbsp;· or paste / drag one straight into the text
+    </p>
+    <input type="file" id="imgFile" accept="image/*" multiple hidden>
 
     <hr class="divider">
 
     <div class="actions">
       {% if edit_mode %}
         <button type="submit" name="action" value="save" class="btn primary">Save changes</button>
-        {% if kind == 'essay' and not edit_published %}
+        {% if is_draft or (kind == 'essay' and not edit_published) %}
           <button type="submit" name="action" value="publish" class="btn">Publish</button>
         {% endif %}
       {% else %}
@@ -334,6 +365,7 @@ html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif
 
 <script>
 const ADMIN_PATH = {{ ap | tojson }};
+const CSRF = {{ csrf_token() | tojson }};
 
 // ── Essay list toggle ─────────────────────────────────────────────────────────
 function toggleList(header) {
@@ -384,6 +416,104 @@ let submitted = false;
 document.getElementById('form').addEventListener('submit', () => { submitted = true; });
 window.addEventListener('beforeunload', e => {
   if (!submitted && content.value.trim()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ── Image upload ──────────────────────────────────────────────────────────────
+// Each file gets a placeholder written at the cursor immediately, then swapped for
+// the real markdown when the server answers. That way the caret never jumps around
+// while a slow upload is in flight, and several images can be in flight at once.
+const imgBtn   = document.getElementById('imgBtn');
+const imgFile  = document.getElementById('imgFile');
+const imgHint  = document.getElementById('imgHint');
+const wrap     = document.getElementById('editorWrap');
+const hintHTML = imgHint.innerHTML;
+
+let pending = 0;
+
+function setHint(msg, cls) {
+  imgHint.className = 'imghint' + (cls ? ' ' + cls : '');
+  if (msg === null) {
+    imgHint.innerHTML = hintHTML;
+    document.getElementById('imgBtn').addEventListener('click', pickFiles);
+  } else {
+    imgHint.textContent = msg;
+  }
+}
+
+function insertAtCursor(text) {
+  const start = content.selectionStart;
+  const end   = content.selectionEnd;
+  content.value = content.value.slice(0, start) + text + content.value.slice(end);
+  const pos = start + text.length;
+  content.setSelectionRange(pos, pos);
+  content.focus();
+}
+
+function replaceOnce(needle, replacement) {
+  const at = content.value.indexOf(needle);
+  if (at === -1) return;
+  const before = content.selectionStart;
+  content.value = content.value.slice(0, at) + replacement
+                + content.value.slice(at + needle.length);
+  // Keep the caret where the writer left it, adjusting for the length change.
+  const delta = replacement.length - needle.length;
+  const pos = before > at ? before + delta : before;
+  content.setSelectionRange(pos, pos);
+}
+
+async function uploadOne(file) {
+  const token = `![uploading ${file.name}…]()`;
+  insertAtCursor(token + '\n\n');
+  pending++;
+  setHint(`uploading ${pending} image${pending > 1 ? 's' : ''}…`, 'busy');
+
+  try {
+    const body = new FormData();
+    body.append('image', file);
+    body.append('_csrf', CSRF);
+    const res  = await fetch(`/${ADMIN_PATH}/upload`, { method: 'POST', body });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `upload failed (${res.status})`);
+
+    const alt = file.name.replace(/\.[^.]+$/, '').replace(/[\[\]]/g, '');
+    replaceOnce(token, `![${alt}](${data.url})`);
+    pending--;
+    setHint(pending ? `uploading ${pending} more…` : null, pending ? 'busy' : '');
+  } catch (err) {
+    replaceOnce(token + '\n\n', '');
+    pending--;
+    setHint(err.message, 'failed');
+    setTimeout(() => { if (!pending) setHint(null, ''); }, 6000);
+  }
+  updateWC(content);
+}
+
+function uploadAll(files) {
+  [...files].filter(f => f.type.startsWith('image/')).forEach(uploadOne);
+}
+
+function pickFiles() { imgFile.click(); }
+
+imgBtn.addEventListener('click', pickFiles);
+imgFile.addEventListener('change', () => { uploadAll(imgFile.files); imgFile.value = ''; });
+
+content.addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.some(f => f.type.startsWith('image/'))) {
+    e.preventDefault();
+    uploadAll(files);
+  }
+});
+
+['dragenter', 'dragover'].forEach(evt =>
+  wrap.addEventListener(evt, e => { e.preventDefault(); wrap.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach(evt =>
+  wrap.addEventListener(evt, e => { e.preventDefault(); wrap.classList.remove('dragover'); }));
+wrap.addEventListener('drop', e => uploadAll(e.dataTransfer.files));
+
+// A half-finished upload means unsaved work — warn like any other edit.
+window.addEventListener('beforeunload', e => {
+  if (pending) { e.preventDefault(); e.returnValue = ''; }
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import re
+import io
 import os
 import difflib
 import hashlib
@@ -11,7 +12,11 @@ from datetime import date, datetime, timezone
 from flask import Flask, render_template, abort, request, Response, redirect, session
 from markupsafe import Markup, escape
 import markdown
+from PIL import Image, ImageOps
 import yaml
+
+UPLOAD_MAX = 16 * 1024 * 1024      # hard ceiling on any request body
+IMAGE_MAX_W = 1600                 # uploads wider than this are downscaled
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -19,11 +24,14 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_SAMESITE="Lax",
+    MAX_CONTENT_LENGTH=UPLOAD_MAX,
 )
 
 CONTENT = Path("content")
+IMAGES  = Path("static/img")       # admin-uploaded essay images
 POSTS   = Path("content/posts")
 ESSAYS  = Path("content/essays")   # unlisted, served at root: /<slug>
+DRAFTS  = Path("content/drafts")   # unpublished blog posts
 
 # ── Admin config ──────────────────────────────────────────────────────────────
 _ADMIN_PATH = os.environ.get("ADMIN_PATH", "").strip("/")
@@ -296,6 +304,11 @@ def essay(slug):
     return render_template("essay.html", post=data)
 
 
+@app.errorhandler(413)
+def too_large(e):
+    return {"error": "file too large — 16 MB max"}, 413
+
+
 @app.errorhandler(404)
 def not_found(e):
     return render_template("oops.html", correct=None), 404
@@ -321,7 +334,7 @@ def _kind_url(kind: str, slug: str) -> str:
     return f"/{slug}" if kind == "essay" else f"/blog/{slug}"
 
 
-def _load_essays_meta(directory: Path) -> list[dict]:
+def _load_essays_meta(directory: Path, draft: bool = False) -> list[dict]:
     """Return lightweight list of everything in `directory` for the admin sidebar."""
     if not directory.exists():
         return []
@@ -339,8 +352,66 @@ def _load_essays_meta(directory: Path) -> list[dict]:
             "date":      str(meta.get("date", "")),
             "published": meta.get("published", True),
             "filename":  p.name,
+            "draft":     draft,
         })
     return result
+
+
+def _admin_listing(kind: str) -> list[dict]:
+    """Everything the write page should offer to edit, newest first.
+
+    Blog drafts live in their own directory, so they have to be merged in here;
+    unpublished essays already sit alongside published ones and carry their own
+    flag, so the essay side needs no extra pass.
+    """
+    if kind == "essay":
+        return _load_essays_meta(ESSAYS)
+    items = _load_essays_meta(POSTS) + _load_essays_meta(DRAFTS, draft=True)
+    return sorted(items, key=lambda e: (e["date"], e["title"]), reverse=True)
+
+
+def _store_image(fs) -> str | None:
+    """Save an uploaded image under static/img/, or None if it is not one.
+
+    Everything is re-encoded rather than trusted: Pillow parsing the bytes is what
+    proves the upload is an image at all, and re-saving drops EXIF (including GPS)
+    on the way out. Wide photos are downscaled — the server is a long way from most
+    readers, so a 4000px phone shot would cost seconds for no visible gain.
+    Animated GIFs are stored byte-for-byte, since re-encoding would flatten them.
+    """
+    raw = fs.read(UPLOAD_MAX + 1)
+    if not raw or len(raw) > UPLOAD_MAX:
+        return None
+    try:
+        Image.open(io.BytesIO(raw)).verify()      # structural check; consumes the file
+        im = Image.open(io.BytesIO(raw))          # ...so reopen for the real work
+        fmt = (im.format or "").upper()
+    except Exception:
+        return None
+    if fmt not in {"JPEG", "PNG", "GIF", "WEBP"}:
+        return None
+
+    stem = _admin_slugify(Path(fs.filename or "image").stem)[:40] or "image"
+    name = f"{date.today().isoformat()}-{stem}-{secrets.token_hex(3)}"
+    IMAGES.mkdir(parents=True, exist_ok=True)
+
+    if fmt == "GIF":
+        out = IMAGES / f"{name}.gif"
+        out.write_bytes(raw)
+        return f"/{out.as_posix()}"
+
+    im = ImageOps.exif_transpose(im)               # apply camera rotation, then lose it
+    if im.width > IMAGE_MAX_W:
+        height = round(im.height * IMAGE_MAX_W / im.width)
+        im = im.resize((IMAGE_MAX_W, height), Image.LANCZOS)
+
+    if im.mode in {"RGBA", "LA"} or (im.mode == "P" and "transparency" in im.info):
+        out = IMAGES / f"{name}.png"
+        im.convert("RGBA").save(out, "PNG", optimize=True)
+    else:
+        out = IMAGES / f"{name}.jpg"
+        im.convert("RGB").save(out, "JPEG", quality=82, optimize=True, progressive=True)
+    return f"/{out.as_posix()}"
 
 
 def _find_essay(slug: str, directory: Path):
@@ -389,7 +460,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
             ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft, kind=kind,
             err=request.args.get("err"),
             live_url=_kind_url(kind, slug),
-            edit_mode=False, essays=_load_essays_meta(_kind_dir(kind)),
+            edit_mode=False, essays=_admin_listing(kind),
             edit_title="", edit_tags="", edit_content="", edit_slug="",
         )
 
@@ -398,7 +469,8 @@ if _ADMIN_PATH and _ADMIN_PASS:
         if not _is_admin():
             return redirect(f"/{_ADMIN_PATH}")
         kind = "essay" if request.args.get("kind") == "essay" else "post"
-        path, meta, body = _find_essay(slug, _kind_dir(kind))
+        is_draft = kind == "post" and request.args.get("draft") == "1"
+        path, meta, body = _find_essay(slug, DRAFTS if is_draft else _kind_dir(kind))
         if path is None:
             abort(404)
         tags_str = ", ".join(str(t) for t in meta.get("tags", []))
@@ -406,7 +478,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         return render_template(
             "admin_editor.html",
             ap=_ADMIN_PATH, ok=ok, slug=slug, draft=False, kind=kind,
-            live_url=_kind_url(kind, slug),
+            live_url=_kind_url(kind, slug), is_draft=is_draft,
             edit_mode=True, essays=[],
             edit_title=meta.get("title", ""),
             edit_tags=tags_str,
@@ -446,7 +518,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         if kind == "essay":
             target = ESSAYS
         else:
-            target = (CONTENT / "drafts") if action == "draft" else POSTS
+            target = DRAFTS if action == "draft" else POSTS
         target.mkdir(parents=True, exist_ok=True)
         (target / fname).write_text(fm, encoding="utf-8")
         if action == "publish":
@@ -470,7 +542,8 @@ if _ADMIN_PATH and _ADMIN_PASS:
         action  = request.form.get("action", "save")
         if not slug or not fname or not title or not content:
             abort(400)
-        path = _kind_dir(kind) / fname
+        is_draft = kind == "post" and request.form.get("_draft") == "1"
+        path = (DRAFTS if is_draft else _kind_dir(kind)) / fname
         if not path.exists():
             abort(404)
         # Preserve original date and slug — only update title, tags, body
@@ -491,9 +564,39 @@ if _ADMIN_PATH and _ADMIN_PASS:
             f'---\ntitle: "{title}"\ndate: {orig_date}\nslug: {orig_slug}\n'
             f"published: {published}\ntags: {tags_yaml}\n---\n\n{content}\n"
         )
-        path.write_text(fm, encoding="utf-8")
+        # Publishing a draft moves the file out of content/drafts/ into the live
+        # directory. Saving leaves it a draft, wherever it already is.
+        if is_draft and action == "publish":
+            POSTS.mkdir(parents=True, exist_ok=True)
+            (POSTS / fname).write_text(fm, encoding="utf-8")
+            path.unlink()
+            is_draft = False
+        else:
+            path.write_text(fm, encoding="utf-8")
         subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
-        return redirect(f"/{_ADMIN_PATH}/edit/{orig_slug}?ok=1&kind={kind}")
+        still_draft = "&draft=1" if is_draft else ""
+        return redirect(
+            f"/{_ADMIN_PATH}/edit/{orig_slug}?ok=1&kind={kind}{still_draft}"
+        )
+
+    @app.route(f"/{_ADMIN_PATH}/upload", methods=["POST"])
+    def _admin_upload():
+        """Take an image from the editor, normalise it, return its public URL.
+
+        Answers JSON because the editor posts here with fetch() and splices the
+        returned URL into the textarea. No restart: images are static files, so
+        nginx serves them the moment they land.
+        """
+        if not _is_admin():
+            abort(403)
+        _check_csrf()
+        fs = request.files.get("image")
+        if fs is None:
+            return {"error": "no file"}, 400
+        url = _store_image(fs)
+        if url is None:
+            return {"error": "not a usable image — jpg, png, gif or webp, 16 MB max"}, 400
+        return {"url": url}
 
     @app.route(f"/{_ADMIN_PATH}/logout")
     def _admin_logout():

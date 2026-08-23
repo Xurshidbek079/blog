@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Uzr{% endblock %}
+{% block content %}
+<style>
+.correct{font-size:1.15em;background:#f7f7f7;padding:1em;margin:2em 0}
+</style>
+
+<h1>Uzr adashib qoldiz</h1>
+
+{% if correct %}
+<p>Bunday sahifa yo'q — bir-ikki harf adashdi. Siz izlagan sahifa mana bu:</p>
+<p class="correct"><a href="/{{ correct }}">xurshid.org/{{ correct }}</a></p>
+{% endif %}
+
+<p class="back"><a href="/">← Bosh sahifa</a></p>
+{% endblock %}

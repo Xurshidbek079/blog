@@ -1,0 +1,539 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  blog — interactive content manager for xurshid.org
+#  Lives at /root/blog/scripts/manage
+#  Installed as: /usr/local/bin/blog  (type `blog` from anywhere)
+# ─────────────────────────────────────────────────────────────────────────────
+
+BLOG_DIR="/root/blog"
+CONTENT="$BLOG_DIR/content"
+EDITOR="${EDITOR:-nano}"
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+R='\033[0m'       # reset
+B='\033[1m'       # bold
+D='\033[2m'       # dim
+G='\033[0;32m'    # green
+Y='\033[0;33m'    # yellow
+RD='\033[0;31m'   # red
+C='\033[0;36m'    # cyan
+GR='\033[0;90m'   # grey
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+show_help() {
+cat <<'HELP'
+
+BLOG MANAGER  —  interactive CLI for xurshid.org
+─────────────────────────────────────────────────
+
+USAGE
+  blog              open the interactive menu
+  blog -h           show this help
+
+MENU SECTIONS
+  1  Essays     /essays on site   →  content/posts/
+  2  Blog       /blog on site     →  content/blog/
+  3  Poems      /poems on site    →  content/poems/
+  4  Drafts     hidden            →  content/drafts/
+  5  Pages      About · Now · Contact  (3 language variants each)
+  6  Data       books · projects · tools  (YAML files)
+  7  Service    restart · status · logs
+
+INSIDE EACH SECTION
+  Type a number to jump straight to editing that post.
+  Or use the letter commands:
+    n   new post
+    e   edit (then enter the number)
+    d   delete (then enter the number)
+    t   toggle published ↔ draft (then enter the number)
+    b   go back
+
+POST FORMAT (frontmatter)
+  Every essay/blog/poem file starts with:
+
+    ---
+    title: "Your Title"
+    date: 2026-05-21
+    slug: your-title
+    published: true
+    tags: [tag1, tag2]
+    ---
+
+    Body in Markdown.
+
+  published: false  →  hidden from site, file kept
+  slug              →  controls the URL  /essays/<slug>
+  tags              →  for tag filtering  /essays?tag=name
+
+LANGUAGE VARIANTS
+  base:      2025-03-04-ramazon.md           (default / English)
+  UZ Latin:  2025-03-04-ramazon.uz.md
+  Cyrillic:  2025-03-04-ramazon.uz_cyr.md
+
+  Structural fields (date, slug, tags, published) always read
+  from the base file. Only title and body differ per variant.
+
+THE ONE RULE
+  After any content change, restart the blog so the cache clears:
+    systemctl restart blog
+  The menu will offer this automatically after every edit.
+
+QUICK COMMANDS (no menu)
+  systemctl restart blog          restart
+  systemctl status blog           check if running
+  journalctl -u blog -n 50        last 50 log lines
+  journalctl -u blog -f           live log stream
+
+HELP
+
+}
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+hr() {
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 60)
+    printf "${D}%${cols}s${R}\n" | tr ' ' '─'
+}
+
+header() {
+    clear
+    printf "\n${B}  BLOG${R}${D}  xurshid.org${R}\n"
+    hr
+    echo
+}
+
+pause() {
+    printf "\n${D}  Press Enter to continue...${R}"
+    read -r
+}
+
+ask_restart() {
+    printf "\n${Y}  Restart blog service now?${R} [Y/n] "
+    read -r ans
+    ans="${ans:-Y}"
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        if systemctl restart blog 2>/dev/null; then
+            printf "${G}  ✓ Restarted${R}\n"
+        else
+            printf "${RD}  ✗ Restart failed (are you root?)${R}\n"
+        fi
+    fi
+}
+
+slugify() {
+    echo "$1" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed "s/[ʻʼ''ʼ''\`]//g" \
+        | sed 's/[^a-z0-9]/-/g' \
+        | sed 's/--*/-/g; s/^-//; s/-$//'
+}
+
+# Extract a frontmatter field value from a .md file
+fm_field() {
+    local file="$1" field="$2"
+    awk -v f="$field" '
+        /^---/ { fence++; if (fence==2) exit; next }
+        fence==1 {
+            if (index($0, f":") == 1) {
+                sub("^"f":[ ]*","")
+                gsub(/^["'"'"']|["'"'"']$/, "")
+                print; exit
+            }
+        }
+    ' "$file"
+}
+
+# List base .md files (no .uz.md / .uz_cyr.md), newest first
+base_mds() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 0
+    find "$dir" -maxdepth 1 -name "*.md" \
+        ! -name "*.uz.md" ! -name "*.uz_cyr.md" \
+        | sort -r
+}
+
+# Print a numbered list; populates the named array with file paths
+list_posts() {
+    local dir="$1"
+    local -n _arr="$2"
+    _arr=()
+
+    printf "  ${D}%-4s %-12s %-7s %s${R}\n" "#" "Date" "Status" "Title"
+    hr
+
+    local i=1 f title pub date status
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        title=$(fm_field "$f" "title")
+        date=$(fm_field  "$f" "date")
+        pub=$(fm_field   "$f" "published")
+        [[ -z "$title" ]] && title="$(basename "$f" .md)"
+        [[ -z "$date"  ]] && date="—"
+        if [[ "$pub" == "false" ]]; then
+            status="${Y}draft  ${R}"
+        else
+            status="${G}pub    ${R}"
+        fi
+        printf "  ${B}%-4s${R} ${D}%-12s${R} %b %s\n" "$i" "$date" "$status" "$title"
+        _arr+=("$f")
+        (( i++ ))
+    done < <(base_mds "$dir")
+
+    [[ ${#_arr[@]} -eq 0 ]] && printf "  ${D}(empty)${R}\n"
+    echo
+}
+
+edit_file() {
+    "$EDITOR" "$1"
+    ask_restart
+}
+
+new_post() {
+    local dir="$1"
+    printf "  Title: "
+    read -r title
+    [[ -z "$title" ]] && printf "  ${D}Cancelled.${R}\n" && return
+    local slug date fname path
+    slug=$(slugify "$title")
+    date=$(date +%Y-%m-%d)
+    fname="${date}-${slug}.md"
+    path="${dir}/${fname}"
+    mkdir -p "$dir"
+    cat > "$path" <<EOF
+---
+title: "${title}"
+date: ${date}
+slug: ${slug}
+published: true
+tags: []
+---
+
+EOF
+    printf "  ${G}Created:${R} %s\n\n" "$fname"
+    sleep 0.4
+    edit_file "$path"
+}
+
+pick_post() {
+    # Pick a file from a list by number. Echoes the chosen file path, or empty.
+    local -n _pick_arr="$1"
+    local prompt="${2:-Number}"
+    [[ ${#_pick_arr[@]} -eq 0 ]] && printf "  ${D}Nothing to pick from.${R}\n" && return 1
+    printf "  %s: " "$prompt"
+    read -r num
+    if [[ "$num" =~ ^[0-9]+$ ]] && (( num >= 1 && num <= ${#_pick_arr[@]} )); then
+        echo "${_pick_arr[$((num-1))]}"
+    else
+        printf "  ${RD}Invalid number.${R}\n"
+        return 1
+    fi
+}
+
+delete_post() {
+    local file="$1"
+    local base="${file%.md}"
+    printf "  ${RD}Delete${R} %s + variants? [y/N] " "$(basename "$file")"
+    read -r ans
+    [[ "${ans:-N}" =~ ^[Yy]$ ]] || { printf "  ${D}Cancelled.${R}\n"; return; }
+    local count=0
+    for v in "$file" "${base}.uz.md" "${base}.uz_cyr.md"; do
+        if [[ -f "$v" ]]; then
+            rm "$v"
+            printf "  ${D}removed: %s${R}\n" "$(basename "$v")"
+            (( count++ ))
+        fi
+    done
+    printf "  ${G}✓ Deleted %d file(s)${R}\n" "$count"
+    ask_restart
+}
+
+toggle_pub() {
+    local file="$1"
+    local cur
+    cur=$(fm_field "$file" "published")
+    if [[ "$cur" == "false" ]]; then
+        sed -i 's/^published: false/published: true/' "$file"
+        printf "  ${G}✓ Now published${R}\n"
+    else
+        sed -i 's/^published: true/published: false/' "$file"
+        printf "  ${Y}✓ Now hidden (draft)${R}\n"
+    fi
+    ask_restart
+}
+
+# ── Generic section menu (essays / blog / poems) ──────────────────────────────
+section_menu() {
+    local label="$1" dir="$2" route="$3"
+    local files=()
+
+    while true; do
+        header
+        printf "  ${B}%s${R}   ${D}→ /%s${R}\n\n" "$label" "$route"
+        list_posts "$dir" files
+
+        printf "  ${B}n${R}  New\n"
+        printf "  ${B}e${R}  Edit          ${D}(then number)${R}\n"
+        printf "  ${B}d${R}  Delete        ${D}(then number)${R}\n"
+        printf "  ${B}t${R}  Toggle pub    ${D}(then number)${R}\n"
+        printf "  ${B}b${R}  Back\n\n"
+        printf "  → "; read -r cmd
+
+        local chosen
+        case "$cmd" in
+            n)
+                header
+                printf "  ${B}New %s${R}\n\n" "$label"
+                new_post "$dir"
+                ;;
+            e)
+                chosen=$(pick_post files "Edit #") || { pause; continue; }
+                edit_file "$chosen"
+                ;;
+            d)
+                chosen=$(pick_post files "Delete #") || { pause; continue; }
+                delete_post "$chosen"
+                pause
+                ;;
+            t)
+                chosen=$(pick_post files "Toggle #") || { pause; continue; }
+                toggle_pub "$chosen"
+                pause
+                ;;
+            [0-9]*)
+                # typing a number goes straight to edit
+                if (( cmd >= 1 && cmd <= ${#files[@]} )); then
+                    edit_file "${files[$((cmd-1))]}"
+                fi
+                ;;
+            b|q|"") return ;;
+        esac
+    done
+}
+
+# ── Drafts ────────────────────────────────────────────────────────────────────
+drafts_menu() {
+    local DRAFTS="${CONTENT}/drafts"
+    mkdir -p "$DRAFTS"
+    local files=()
+
+    while true; do
+        header
+        printf "  ${B}Drafts${R}   ${D}→ hidden (not published)${R}\n\n"
+        list_posts "$DRAFTS" files
+
+        printf "  ${B}n${R}  New draft\n"
+        printf "  ${B}e${R}  Edit          ${D}(then number)${R}\n"
+        printf "  ${B}p${R}  Publish       ${D}(then number)${R}\n"
+        printf "  ${B}d${R}  Delete        ${D}(then number)${R}\n"
+        printf "  ${B}b${R}  Back\n\n"
+        printf "  → "; read -r cmd
+
+        local chosen
+        case "$cmd" in
+            n)
+                header
+                printf "  ${B}New draft${R}\n\n"
+                new_post "$DRAFTS"
+                ;;
+            e)
+                chosen=$(pick_post files "Edit #") || { pause; continue; }
+                "$EDITOR" "$chosen"
+                ;;
+            p)
+                chosen=$(pick_post files "Publish #") || { pause; continue; }
+                printf "\n  Publish to:\n"
+                printf "  ${B}1${R}  Essays   /essays\n"
+                printf "  ${B}2${R}  Blog     /blog\n"
+                printf "  ${B}3${R}  Poems    /poems\n"
+                printf "  → "; read -r dest
+                local destdir
+                case "$dest" in
+                    1) destdir="${CONTENT}/posts"  ;;
+                    2) destdir="${CONTENT}/blog"   ;;
+                    3) destdir="${CONTENT}/poems"  ;;
+                    *) printf "  ${D}Cancelled.${R}\n"; pause; continue ;;
+                esac
+                mkdir -p "$destdir"
+                local base="${chosen%.md}"
+                local moved=0
+                for v in "$chosen" "${base}.uz.md" "${base}.uz_cyr.md"; do
+                    [[ -f "$v" ]] && cp "$v" "${destdir}/$(basename "$v")" && (( moved++ ))
+                done
+                printf "  ${G}✓ Copied %d file(s) to %s${R}\n" "$moved" "$(basename "$destdir")"
+                ask_restart
+                pause
+                ;;
+            d)
+                chosen=$(pick_post files "Delete #") || { pause; continue; }
+                delete_post "$chosen"
+                pause
+                ;;
+            [0-9]*)
+                if (( cmd >= 1 && cmd <= ${#files[@]} )); then
+                    "$EDITOR" "${files[$((cmd-1))]}"
+                fi
+                ;;
+            b|q|"") return ;;
+        esac
+    done
+}
+
+# ── Pages ─────────────────────────────────────────────────────────────────────
+pages_menu() {
+    while true; do
+        header
+        printf "  ${B}Pages${R}\n\n"
+        printf "  ${B}1${R}  About\n"
+        printf "  ${B}2${R}  Now\n"
+        printf "  ${B}3${R}  Contact\n"
+        printf "  ${B}b${R}  Back\n\n"
+        printf "  → "; read -r page
+
+        local stem
+        case "$page" in
+            1) stem="about"   ;;
+            2) stem="now"     ;;
+            3) stem="contact" ;;
+            b|q|"") return    ;;
+            *) continue       ;;
+        esac
+
+        printf "\n  Language:\n"
+        printf "  ${B}1${R}  English        ${D}%s.md${R}\n"           "$stem"
+        printf "  ${B}2${R}  Uzbek Latin    ${D}%s.uz.md${R}\n"        "$stem"
+        printf "  ${B}3${R}  Uzbek Cyrillic ${D}%s.uz_cyr.md${R}\n"    "$stem"
+        printf "  ${B}a${R}  All three (one by one)\n"
+        printf "  → "; read -r lang
+
+        local variants=()
+        case "$lang" in
+            1) variants=("${CONTENT}/${stem}.md") ;;
+            2) variants=("${CONTENT}/${stem}.uz.md") ;;
+            3) variants=("${CONTENT}/${stem}.uz_cyr.md") ;;
+            a) variants=(
+                "${CONTENT}/${stem}.md"
+                "${CONTENT}/${stem}.uz.md"
+                "${CONTENT}/${stem}.uz_cyr.md"
+               ) ;;
+            *) continue ;;
+        esac
+
+        for f in "${variants[@]}"; do
+            [[ ! -f "$f" ]] && touch "$f"
+            printf "\n  ${D}Opening: %s${R}\n" "$(basename "$f")"
+            sleep 0.4
+            "$EDITOR" "$f"
+        done
+        ask_restart
+    done
+}
+
+# ── Data files ────────────────────────────────────────────────────────────────
+data_menu() {
+    while true; do
+        header
+        printf "  ${B}Data files${R}   ${D}YAML${R}\n\n"
+        printf "  ${B}1${R}  books.yaml    ${D}/books${R}\n"
+        printf "  ${B}2${R}  projects.yaml ${D}/projects${R}\n"
+        printf "  ${B}3${R}  tools.yaml    ${D}/tools${R}\n"
+        printf "  ${B}b${R}  Back\n\n"
+        printf "  → "; read -r cmd
+
+        local file
+        case "$cmd" in
+            1) file="${CONTENT}/books.yaml"    ;;
+            2) file="${CONTENT}/projects.yaml" ;;
+            3) file="${CONTENT}/tools.yaml"    ;;
+            b|q|"") return ;;
+            *) continue ;;
+        esac
+        [[ ! -f "$file" ]] && touch "$file"
+        edit_file "$file"
+    done
+}
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service_menu() {
+    while true; do
+        header
+        local dot
+        if systemctl is-active --quiet blog 2>/dev/null; then
+            dot="${G}● active${R}"
+        else
+            dot="${RD}● stopped${R}"
+        fi
+        printf "  ${B}Service${R}  %b\n\n" "$dot"
+        printf "  ${B}1${R}  Restart\n"
+        printf "  ${B}2${R}  Full status\n"
+        printf "  ${B}3${R}  Last 40 log lines\n"
+        printf "  ${B}4${R}  Live log stream  ${D}(Ctrl+C to stop)${R}\n"
+        printf "  ${B}b${R}  Back\n\n"
+        printf "  → "; read -r cmd
+
+        case "$cmd" in
+            1)
+                systemctl restart blog 2>/dev/null \
+                    && printf "  ${G}✓ Restarted${R}\n" \
+                    || printf "  ${RD}✗ Failed${R}\n"
+                pause
+                ;;
+            2) systemctl status blog --no-pager -l; pause ;;
+            3) journalctl -u blog -n 40 --no-pager; pause ;;
+            4) journalctl -u blog -f ;;
+            b|q|"") return ;;
+        esac
+    done
+}
+
+# ── Main menu ─────────────────────────────────────────────────────────────────
+main_menu() {
+    while true; do
+        header
+
+        local ne nb np nd svc_dot
+        ne=$(base_mds "${CONTENT}/posts"  | wc -l | tr -d ' ')
+        nb=$(base_mds "${CONTENT}/blog"   | wc -l | tr -d ' ')
+        np=$(base_mds "${CONTENT}/poems"  | wc -l | tr -d ' ')
+        nd=$(base_mds "${CONTENT}/drafts" | wc -l | tr -d ' ')
+
+        systemctl is-active --quiet blog 2>/dev/null \
+            && svc_dot="${G}●${R}" \
+            || svc_dot="${RD}●${R}"
+
+        printf "  ${B}1${R}  Essays        ${D}%s posts${R}\n"  "$ne"
+        printf "  ${B}2${R}  Blog          ${D}%s posts${R}\n"  "$nb"
+        printf "  ${B}3${R}  Poems         ${D}%s posts${R}\n"  "$np"
+        printf "  ${B}4${R}  Drafts        ${D}%s saved${R}\n"  "$nd"
+        printf "  ${B}5${R}  Pages         ${D}about · now · contact${R}\n"
+        printf "  ${B}6${R}  Data          ${D}books · projects · tools${R}\n"
+        printf "  ${B}7${R}  Service       %b\n" "$svc_dot"
+        echo
+        printf "  ${B}h${R}  Help\n"
+        printf "  ${B}q${R}  Quit\n\n"
+        printf "  → "; read -r cmd
+
+        case "$cmd" in
+            1) section_menu "Essays" "${CONTENT}/posts"  "essays" ;;
+            2) section_menu "Blog"   "${CONTENT}/blog"   "blog"   ;;
+            3) section_menu "Poems"  "${CONTENT}/poems"  "poems"  ;;
+            4) drafts_menu  ;;
+            5) pages_menu   ;;
+            6) data_menu    ;;
+            7) service_menu ;;
+            h|-h|--help|help) clear; show_help; pause ;;
+            q|quit|exit|"")   echo; exit 0 ;;
+        esac
+    done
+}
+
+# ── Entry ─────────────────────────────────────────────────────────────────────
+case "${1:-}" in
+    -h|--help|help) show_help; exit 0 ;;
+esac
+
+if [[ ! -d "$CONTENT" ]]; then
+    printf "Error: %s not found.\nRun this on the server as root, or fix BLOG_DIR in the script.\n" "$CONTENT"
+    exit 1
+fi
+
+main_menu

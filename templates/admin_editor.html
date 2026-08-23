@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% if edit_mode %}Edit — {{ edit_title }}{% else %}Write{% endif %}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:#0f0f0f;color:#d4d4d4;font-family:Georgia,serif}
+
+.page{
+  max-width:720px;
+  margin:0 auto;
+  padding:40px 24px 80px;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+}
+
+/* ── Top bar ── */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:32px;
+  font-size:12px;
+  color:#3a3a3a;
+  font-family:system-ui,sans-serif;
+  letter-spacing:.06em;
+}
+.topbar-left{display:flex;align-items:center;gap:14px}
+.topbar a{color:#3a3a3a;text-decoration:none;transition:color .15s}
+.topbar a:hover{color:#888}
+.topbar .sep{color:#222}
+
+/* ── Essay list (write mode) ── */
+.essay-list{
+  margin-bottom:32px;
+  border:1px solid #1a1a1a;
+  border-radius:6px;
+  overflow:hidden;
+}
+.essay-list-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 14px;
+  background:#111;
+  font-family:system-ui,sans-serif;
+  font-size:11px;
+  color:#444;
+  letter-spacing:.06em;
+  cursor:pointer;
+  user-select:none;
+}
+.essay-list-header:hover{color:#777}
+.essay-list-body{display:none}
+.essay-list-body.open{display:block}
+.essay-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:9px 14px;
+  border-top:1px solid #161616;
+  gap:12px;
+}
+.essay-item:hover{background:#111}
+.essay-item-title{
+  font-family:Georgia,serif;
+  font-size:14px;
+  color:#aaa;
+  flex:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.essay-item-date{
+  font-family:system-ui,sans-serif;
+  font-size:11px;
+  color:#333;
+  white-space:nowrap;
+}
+.essay-item-edit{
+  font-family:system-ui,sans-serif;
+  font-size:11px;
+  color:#3a5a3a;
+  text-decoration:none;
+  padding:3px 8px;
+  border:1px solid #1e2e1e;
+  border-radius:3px;
+  white-space:nowrap;
+  transition:color .15s,border-color .15s;
+}
+.essay-item-edit:hover{color:#6ab06a;border-color:#2a402a}
+.draft-badge{
+  font-size:10px;
+  color:#554422;
+  font-family:system-ui,sans-serif;
+  padding:1px 5px;
+  border:1px solid #332211;
+  border-radius:2px;
+}
+
+/* ── Edit mode banner ── */
+.edit-banner{
+  font-family:system-ui,sans-serif;
+  font-size:12px;
+  color:#3a5a3a;
+  margin-bottom:28px;
+  padding:10px 14px;
+  background:#0f1a0f;
+  border:1px solid #1a2e1a;
+  border-radius:5px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.edit-banner span{color:#5a8a5a}
+.edit-banner a{color:#3a5a3a;text-decoration:none}
+.edit-banner a:hover{color:#6ab06a}
+
+/* ── Fields ── */
+#title{
+  width:100%;
+  background:transparent;
+  border:none;
+  outline:none;
+  color:#f0f0f0;
+  font-family:Georgia,serif;
+  font-size:28px;
+  font-weight:normal;
+  line-height:1.3;
+  resize:none;
+  padding:0;
+  margin-bottom:14px;
+  caret-color:#f0f0f0;
+}
+#title::placeholder{color:#2e2e2e}
+
+#tags{
+  width:100%;
+  background:transparent;
+  border:none;
+  border-bottom:1px solid #1e1e1e;
+  outline:none;
+  color:#666;
+  font-family:system-ui,sans-serif;
+  font-size:13px;
+  padding:0 0 10px;
+  margin-bottom:28px;
+  caret-color:#888;
+}
+#tags::placeholder{color:#2a2a2a}
+#tags:focus{border-bottom-color:#333;color:#999}
+
+/* ── Writing area ── */
+.editor-wrap{position:relative;flex:1}
+#content{
+  width:100%;
+  min-height:420px;
+  background:transparent;
+  border:none;
+  outline:none;
+  color:#d4d4d4;
+  font-family:Georgia,serif;
+  font-size:18px;
+  line-height:1.8;
+  resize:none;
+  padding:0;
+  caret-color:#f0f0f0;
+  display:block;
+}
+#content::placeholder{color:#2a2a2a}
+
+/* ── Divider ── */
+.divider{border:none;border-top:1px solid #1a1a1a;margin:14px 0}
+
+/* ── Buttons ── */
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px}
+.btn{
+  background:#1a1a1a;border:1px solid #252525;border-radius:5px;color:#888;
+  font-family:system-ui,sans-serif;font-size:13px;padding:9px 18px;cursor:pointer;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.btn:hover{background:#202020;color:#ccc;border-color:#333}
+.btn.primary{background:#1c2e1c;border-color:#2a402a;color:#6ab06a}
+.btn.primary:hover{background:#223222;color:#7ec47e;border-color:#3a503a}
+
+/* ── Notices ── */
+.notice{
+  padding:10px 14px;border-radius:5px;
+  font-family:system-ui,sans-serif;font-size:13px;
+  margin-bottom:28px;
+}
+.notice.success{background:#1a2a1a;border:1px solid #2a3a2a;color:#6ab06a}
+.notice.error{background:#2a1a1a;border:1px solid #3a2a2a;color:#c07a7a}
+.notice a{color:#8ac88a;text-underline-offset:2px}
+.notice code{font-family:ui-monospace,monospace;font-size:12px;color:#8ac88a}
+
+/* ── Word count ── */
+.wc{font-size:12px;color:#2e2e2e;margin-left:auto;font-family:system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span>{{ 'ESSAY' if kind == 'essay' else 'POST' }}</span>
+      <span class="sep">·</span>
+      {% if kind == 'essay' %}
+        <a href="/{{ ap }}/write">New post</a>
+      {% else %}
+        <a href="/{{ ap }}/write?kind=essay">New essay</a>
+      {% endif %}
+      {% if edit_mode %}
+        <span class="sep">·</span>
+        <a href="/{{ ap }}/write{% if kind == 'essay' %}?kind=essay{% endif %}">New {{ kind }}</a>
+      {% endif %}
+    </div>
+    <a href="/{{ ap }}/logout">logout</a>
+  </div>
+
+  <!-- Write mode: essay list -->
+  {% if not edit_mode %}
+    {% if essays %}
+    <div class="essay-list">
+      <div class="essay-list-header" onclick="toggleList(this)">
+        YOUR {{ 'ESSAYS' if kind == 'essay' else 'POSTS' }} ({{ essays|length }}) <span id="arrow">▸</span>
+      </div>
+      <div class="essay-list-body" id="essayListBody">
+        {% for e in essays %}
+        <div class="essay-item">
+          <span class="essay-item-title">{{ e.title }}</span>
+          <span class="essay-item-date">{{ e.date }}</span>
+          {% if not e.published %}<span class="draft-badge">unpublished</span>{% endif %}
+          <a class="essay-item-edit" href="/{{ ap }}/edit/{{ e.slug }}{% if kind == 'essay' %}?kind=essay{% endif %}">Edit</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  <!-- Edit mode: banner -->
+  {% if edit_mode %}
+  <div class="edit-banner">
+    <span>Editing:</span> {{ edit_title }}
+    &nbsp;·&nbsp;
+    {% if edit_published %}
+      <a href="{{ live_url }}" target="_blank">↗ view live</a>
+    {% else %}
+      <span>unpublished — not reachable yet</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Reserved-slug error -->
+  {% if err == 'slug' %}
+  <div class="notice error">
+    That title makes a slug that clashes with an existing page (like /blog or /about).
+    Pick a different title.
+  </div>
+  {% endif %}
+
+  <!-- Success notice -->
+  {% if ok %}
+  <div class="notice success">
+    {% set _new_link = '/' ~ ap ~ '/write' ~ ('?kind=essay' if kind == 'essay' else '') %}
+    {% if edit_mode %}
+      Saved. <a href="{{ live_url }}">↗ view live</a>
+    {% elif draft %}
+      {% if kind == 'essay' %}
+        Saved unpublished. It stays at <code>{{ live_url }}</code> but 404s until you publish it.
+      {% else %}
+        Draft saved.
+      {% endif %}
+      <a href="{{ _new_link }}">New {{ kind }}</a>
+    {% else %}
+      Published → <a href="{{ live_url }}">{{ live_url }}</a>
+      {% if kind == 'essay' %}<br><span style="color:#5a8a5a">Unlisted — reachable only via this link.</span>{% endif %}
+      &nbsp;·&nbsp; <a href="{{ _new_link }}">New {{ kind }}</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Form -->
+  <form method="post"
+        action="/{{ ap }}/{% if edit_mode %}save{% else %}publish{% endif %}"
+        id="form">
+
+    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+    <input type="hidden" name="kind"  value="{{ kind }}">
+
+    {% if edit_mode %}
+      <input type="hidden" name="_slug"     value="{{ edit_slug }}">
+      <input type="hidden" name="_filename" value="{{ edit_filename }}">
+    {% endif %}
+
+    <textarea id="title" name="title" rows="1"
+      placeholder="Title" autocomplete="off" spellcheck="false"
+    >{{ edit_title }}</textarea>
+
+    <input id="tags" name="tags" type="text"
+      placeholder="tags: embedded, python" autocomplete="off" spellcheck="false"
+      value="{{ edit_tags }}">
+
+    <div class="editor-wrap">
+      <textarea id="content" name="content"
+        placeholder="Write..." autocomplete="off" spellcheck="false"
+      >{{ edit_content }}</textarea>
+    </div>
+
+    <hr class="divider">
+
+    <div class="actions">
+      {% if edit_mode %}
+        <button type="submit" name="action" value="save" class="btn primary">Save changes</button>
+        {% if kind == 'essay' and not edit_published %}
+          <button type="submit" name="action" value="publish" class="btn">Publish</button>
+        {% endif %}
+      {% else %}
+        <button type="submit" name="action" value="publish" class="btn primary">
+          Publish {{ kind }}</button>
+        <button type="submit" name="action" value="draft" class="btn">
+          {{ 'Save unpublished' if kind == 'essay' else 'Save draft' }}</button>
+      {% endif %}
+      <span class="wc" id="wc"></span>
+    </div>
+
+  </form>
+</div>
+
+<script>
+const ADMIN_PATH = {{ ap | tojson }};
+
+// ── Essay list toggle ─────────────────────────────────────────────────────────
+function toggleList(header) {
+  const body  = document.getElementById('essayListBody');
+  const arrow = document.getElementById('arrow');
+  if (!body) return;
+  const open = body.classList.toggle('open');
+  arrow.textContent = open ? '▾' : '▸';
+}
+
+// ── Title resize ──────────────────────────────────────────────────────────────
+const titleEl = document.getElementById('title');
+function resizeTitle() {
+  titleEl.style.height = 'auto';
+  titleEl.style.height = titleEl.scrollHeight + 'px';
+}
+titleEl.addEventListener('input', resizeTitle);
+
+// ── Word count ────────────────────────────────────────────────────────────────
+const wcEl = document.getElementById('wc');
+function updateWC(el) {
+  const n = el.value.trim().split(/\s+/).filter(Boolean).length;
+  wcEl.textContent = n ? `${n} words` : '';
+}
+
+// ── Content textarea events ───────────────────────────────────────────────────
+const content = document.getElementById('content');
+
+content.addEventListener('input', () => updateWC(content));
+
+content.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const p = content.selectionStart;
+    content.value = content.value.slice(0, p) + '  ' + content.value.slice(p);
+    content.setSelectionRange(p + 2, p + 2);
+    return;
+  }
+});
+
+// ── Enter in title → jump to content ─────────────────────────────────────────
+titleEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); content.focus(); }
+});
+
+// ── Unsaved warning ───────────────────────────────────────────────────────────
+let submitted = false;
+document.getElementById('form').addEventListener('submit', () => { submitted = true; });
+window.addEventListener('beforeunload', e => {
+  if (!submitted && content.value.trim()) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+resizeTitle();
+updateWC(content);
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Projects — Xurshid{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+<p>About the projects I have worked on, see my <a href="https://github.com/xurshidbek079">github</a> for more info.</p>
+{% for p in projects %}
+<h3>
+  {% if p.url %}<a href="{{ p.url }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}
+</h3>
+<p>{{ p.description }}</p>
+{% if p.tech %}<p class="meta">{{ p.tech | join(", ") }}</p>{% endif %}
+{% endfor %}
+{% endblock %}

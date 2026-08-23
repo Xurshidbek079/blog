@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Blog — Xurshid{% endblock %}
+{% block content %}
+<h1>Blog</h1>
+{% if active_tag %}<p class="meta">Tag: {{ active_tag }} &nbsp;<a href="/blog">clear</a></p>{% endif %}
+{% if posts %}
+<ul class="posts">
+{% for p in posts %}
+<li>
+  <span class="date">{{ p.date }}</span>
+  <a href="/blog/{{ p.slug }}">{{ p.title }}</a>
+  {% if p.tags %}<span class="meta"> · {% for tag in p.tags %}<a href="/blog?tag={{ tag }}">{{ tag }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% else %}
+<p>{% if active_tag %}No posts tagged "{{ active_tag }}".{% else %}No posts yet.{% endif %}</p>
+{% endif %}
+{% endblock %}

@@ -293,7 +293,11 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
   <div class="notice success">
     {% set _new_link = '/' ~ ap ~ '/write' ~ ('?kind=essay' if kind == 'essay' else '') %}
     {% if edit_mode %}
-      Saved. <a href="{{ live_url }}">↗ view live</a>
+      {% if is_draft or not edit_published %}
+        Saved — not published, so <code>{{ live_url }}</code> 404s until you publish it.
+      {% else %}
+        Saved. <a href="{{ live_url }}">↗ view live</a>
+      {% endif %}
     {% elif draft %}
       {% if kind == 'essay' %}
         Saved unpublished. It stays at <code>{{ live_url }}</code> but 404s until you publish it.
@@ -350,6 +354,9 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
         <button type="submit" name="action" value="save" class="btn primary">Save changes</button>
         {% if is_draft or (kind == 'essay' and not edit_published) %}
           <button type="submit" name="action" value="publish" class="btn">Publish</button>
+        {% elif edit_published %}
+          <button type="submit" name="action" value="unpublish" class="btn">
+            {{ 'Unpublish' if kind == 'essay' else 'Move to drafts' }}</button>
         {% endif %}
       {% else %}
         <button type="submit" name="action" value="publish" class="btn primary">

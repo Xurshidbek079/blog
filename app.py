@@ -557,20 +557,31 @@ if _ADMIN_PATH and _ADMIN_PASS:
         tags         = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
         tags_yaml    = "[" + ", ".join(tags) + "]" if tags else "[]"
         # Saving must not silently publish an unpublished essay — only the Publish
-        # button does that. Everything else keeps whatever state the file already had.
+        # button does that. Everything else keeps whatever state the file already had,
+        # unless Unpublish explicitly asks for the reverse.
         was_published = meta.get("published", True) is not False
-        published     = "true" if (action == "publish" or was_published) else "false"
+        if action == "unpublish":
+            published = "false"
+        else:
+            published = "true" if (action == "publish" or was_published) else "false"
         fm = (
             f'---\ntitle: "{title}"\ndate: {orig_date}\nslug: {orig_slug}\n'
             f"published: {published}\ntags: {tags_yaml}\n---\n\n{content}\n"
         )
         # Publishing a draft moves the file out of content/drafts/ into the live
-        # directory. Saving leaves it a draft, wherever it already is.
+        # directory, and unpublishing a post moves it back. Essays never move —
+        # they live at a root URL either way, so published: false is what hides
+        # them, and that is already in the frontmatter above.
         if is_draft and action == "publish":
             POSTS.mkdir(parents=True, exist_ok=True)
             (POSTS / fname).write_text(fm, encoding="utf-8")
             path.unlink()
             is_draft = False
+        elif kind == "post" and action == "unpublish" and not is_draft:
+            DRAFTS.mkdir(parents=True, exist_ok=True)
+            (DRAFTS / fname).write_text(fm, encoding="utf-8")
+            path.unlink()
+            is_draft = True
         else:
             path.write_text(fm, encoding="utf-8")
         subprocess.run(["systemctl", "restart", "blog"], capture_output=True)

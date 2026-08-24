@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -19,11 +20,18 @@ POSTS_DIR   = BLOG_DIR / "content/posts"     # listed blog posts  → /blog/<slu
 ESSAYS_DIR  = BLOG_DIR / "content/essays"    # unlisted essays    → /<slug>
 DRAFTS_DIR  = BLOG_DIR / "content/drafts"
 CONTENT_DIR = BLOG_DIR / "content"
+BOOKS_DIR   = BLOG_DIR / "content/books"     # one file per book → /books/<slug>
+IMAGES_DIR  = BLOG_DIR / "static/img"
 SITE_URL    = "https://xurshid.org"
+
+# Covers go through the same normaliser the web panel uses: proven to be an
+# image, EXIF stripped, downscaled. app.py lives one directory up.
+sys.path.insert(0, str(BLOG_DIR))
+from imagestore import save_image_bytes  # noqa: E402
 
 # Root slugs an essay may never take — keep in sync with _RESERVED_SLUGS in app.py.
 RESERVED_SLUGS = {
-    "blog", "about", "now", "contact", "projects", "tools",
+    "blog", "about", "now", "contact", "projects", "tools", "books",
     "feed.xml", "sitemap.xml", "static", "robots.txt", "favicon.ico", "admin",
 }
 
@@ -31,6 +39,8 @@ RESERVED_SLUGS = {
 (TITLE, TAGS, CONTENT, ASK_SUMMARY, ASK_SERIES, FINAL_CONFIRM) = range(6)
 (PAGE_PICK, PAGE_CONTENT) = range(6, 8)
 (EDIT_PICK, EDIT_CONTENT) = range(8, 10)
+(BOOK_TITLE, BOOK_AUTHOR, BOOK_COVER, BOOK_SUMMARY,
+ BOOK_NOTES, BOOK_CONFIRM) = range(10, 16)
 
 PAGES = {
     "About":    "about.md",
@@ -82,6 +92,11 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/essays — list essays + their links\n"
         "/editessay — edit an essay\n"
         "/delessay — delete an essay\n\n"
+        "BOOKS (listed at /books)\n"
+        "/newbook — add a book\n"
+        "/books — list books + their links\n"
+        "/editbook — edit a book\n"
+        "/delbook — delete a book\n\n"
         "SITE\n"
         "/pages — edit pages (About, Now, Contact, Projects, Tools)\n"
         "/restart — restart blog service\n"
@@ -257,6 +272,206 @@ async def new_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def new_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Cancelled.")
     return ConversationHandler.END
+
+
+# ── /newbook conversation ─────────────────────────────────────────────────────
+
+def yaml_str(value: str) -> str:
+    """Quote a value for single-line YAML without letting it break out."""
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def book_slugs() -> set[str]:
+    """Every slug already taken by a book."""
+    taken = set()
+    for p in base_posts(BOOKS_DIR):
+        head = p.read_text(encoding="utf-8")[:400]
+        m = re.search(r"^slug:\s*(\S+)", head, re.M)
+        taken.add(m.group(1).strip("\"'") if m else re.sub(r"^\d{4}-\d{2}-\d{2}-", "", p.stem))
+    return taken
+
+
+async def newbook_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return ConversationHandler.END
+    ctx.user_data.clear()
+    ctx.user_data["kind"] = "book"
+    await update.message.reply_text("Book title:")
+    return BOOK_TITLE
+
+
+async def book_title(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    title = update.message.text.strip()
+    slug = slugify(title)
+    if not slug:
+        await update.message.reply_text(
+            "That title has no usable letters or digits for a URL. Try another:"
+        )
+        return BOOK_TITLE
+    if slug in book_slugs():
+        await update.message.reply_text(
+            f"A book already lives at /books/{slug}. Pick a different title:"
+        )
+        return BOOK_TITLE
+    ctx.user_data["title"] = title
+    await update.message.reply_text("Author (or /skip):")
+    return BOOK_AUTHOR
+
+
+async def book_author(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["author"] = update.message.text.strip()
+    return await _ask_cover(update)
+
+
+async def skip_author(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["author"] = ""
+    return await _ask_cover(update)
+
+
+async def _ask_cover(update: Update):
+    await update.message.reply_text(
+        "Send the cover photo (or /skip).\n\n"
+        "Either a normal photo or a file — it gets resized and stripped of metadata "
+        "either way."
+    )
+    return BOOK_COVER
+
+
+async def book_cover(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if msg.photo:
+        file_id, hint = msg.photo[-1].file_id, ctx.user_data["title"]
+    elif msg.document and (msg.document.mime_type or "").startswith("image/"):
+        file_id, hint = msg.document.file_id, msg.document.file_name or ctx.user_data["title"]
+    else:
+        await msg.reply_text("That is not an image. Send a photo, or /skip:")
+        return BOOK_COVER
+
+    tg_file = await ctx.bot.get_file(file_id)
+    raw = bytes(await tg_file.download_as_bytearray())
+    url = save_image_bytes(raw, hint, IMAGES_DIR)
+    if url is None:
+        await msg.reply_text("Could not read that as an image. Try another, or /skip:")
+        return BOOK_COVER
+    ctx.user_data["cover"] = url
+    await msg.reply_text(f"Cover saved ✓ {url}\n\nShort summary for the /books list (or /skip):")
+    return BOOK_SUMMARY
+
+
+async def skip_cover(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["cover"] = ""
+    await update.message.reply_text("Short summary for the /books list (or /skip):")
+    return BOOK_SUMMARY
+
+
+async def book_summary(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["summary"] = update.message.text.strip()
+    return await _ask_notes(update)
+
+
+async def skip_summary_book(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["summary"] = ""
+    return await _ask_notes(update)
+
+
+async def _ask_notes(update: Update):
+    await update.message.reply_text(
+        "Now the notes — your thoughts, highlights, anything.\n\n"
+        "Plain text is fine. Markdown works too, so [text](https://url) becomes a link."
+    )
+    return BOOK_NOTES
+
+
+async def book_notes(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["notes"] = update.message.text
+    d = ctx.user_data
+    info = (f"*{d['title']}*\n"
+            f"Author: {d.get('author') or '—'}\n"
+            f"Cover: {'yes' if d.get('cover') else 'none'}\n"
+            f"Summary: {(d.get('summary') or '—')[:100]}\n\n"
+            f"→ `{SITE_URL}/books/{slugify(d['title'])}`")
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("Publish now",      callback_data="book:publish"),
+        InlineKeyboardButton("Save unpublished", callback_data="book:draft"),
+        InlineKeyboardButton("Cancel",           callback_data="book:cancel"),
+    ]])
+    await update.message.reply_text(info, parse_mode="Markdown", reply_markup=kb)
+    return BOOK_CONFIRM
+
+
+async def book_final(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    action = q.data.split(":")[1]
+    if action == "cancel":
+        await q.edit_message_text("Cancelled.")
+        return ConversationHandler.END
+
+    d = ctx.user_data
+    slug = slugify(d["title"])
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    fname = f"{date_str}-{slug}.md"
+    published = "true" if action == "publish" else "false"
+
+    fm = (f"---\ntitle: {yaml_str(d['title'])}\ndate: {date_str}\nslug: {slug}\n"
+          f"published: {published}\ntags: []\n")
+    for field in ("author", "cover", "summary"):
+        if d.get(field):
+            fm += f"{field}: {yaml_str(d[field])}\n"
+    fm += f"---\n\n{d['notes']}\n"
+
+    BOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    (BOOKS_DIR / fname).write_text(fm, encoding="utf-8")
+    shell("systemctl restart blog")
+
+    if action == "publish":
+        await q.edit_message_text(f"Published ✓\n{SITE_URL}/books/{slug}")
+    else:
+        await q.edit_message_text(
+            f"Saved unpublished ✓ {fname}\n\n{SITE_URL}/books/{slug} will 404 until you "
+            f"publish it with /editbook."
+        )
+    return ConversationHandler.END
+
+
+async def book_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Cancelled.")
+    return ConversationHandler.END
+
+
+# ── /books, /editbook, /delbook ───────────────────────────────────────────────
+
+def _book_line(path: Path) -> str:
+    head = path.read_text(encoding="utf-8")[:600]
+    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", path.stem)
+    m = re.search(r"^slug:\s*(\S+)", head, re.M)
+    if m:
+        slug = m.group(1).strip("\"'")
+    t = re.search(r'^title:\s*"?(.+?)"?\s*$', head, re.M)
+    title = t.group(1) if t else slug
+    state = "unpublished" if re.search(r"^published:\s*false", head, re.M) else "live"
+    return f"{title} — {SITE_URL}/books/{slug} ({state})"
+
+
+async def cmd_books(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update):
+        return
+    files = base_posts(BOOKS_DIR)
+    if not files:
+        await update.message.reply_text("No books yet. Add one with /newbook.")
+        return
+    await update.message.reply_text(
+        f"Books ({len(files)}):\n" + "\n".join(_book_line(f) for f in files),
+        disable_web_page_preview=True,
+    )
+
+
+async def cmd_editbook(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    return await _edit_menu(update, ctx, BOOKS_DIR, "book")
+
+
+async def cmd_delbook(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await _delete_menu(update, ctx, BOOKS_DIR, "book")
 
 
 # ── /drafts ───────────────────────────────────────────────────────────────────
@@ -570,10 +785,34 @@ def main():
         fallbacks=[CommandHandler("cancel", pages_cancel)],
     )
 
+    book_conv = ConversationHandler(
+        entry_points=[CommandHandler("newbook", newbook_start)],
+        states={
+            BOOK_TITLE:  [MessageHandler(filters.TEXT & ~filters.COMMAND, book_title)],
+            BOOK_AUTHOR: [
+                CommandHandler("skip", skip_author),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, book_author),
+            ],
+            BOOK_COVER: [
+                CommandHandler("skip", skip_cover),
+                MessageHandler(filters.PHOTO | filters.Document.ALL, book_cover),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, book_cover),
+            ],
+            BOOK_SUMMARY: [
+                CommandHandler("skip", skip_summary_book),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, book_summary),
+            ],
+            BOOK_NOTES:   [MessageHandler(filters.TEXT & ~filters.COMMAND, book_notes)],
+            BOOK_CONFIRM: [CallbackQueryHandler(book_final, pattern=r"^book:")],
+        },
+        fallbacks=[CommandHandler("cancel", book_cancel)],
+    )
+
     edit_conv = ConversationHandler(
         entry_points=[
             CommandHandler("edit",      cmd_edit),
             CommandHandler("editessay", cmd_editessay),
+            CommandHandler("editbook",  cmd_editbook),
         ],
         states={
             EDIT_PICK:    [CallbackQueryHandler(edit_pick, pattern=r"^edit:")],
@@ -585,14 +824,17 @@ def main():
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(new_conv)
     application.add_handler(pages_conv)
+    application.add_handler(book_conv)
     application.add_handler(edit_conv)
     application.add_handler(CommandHandler("drafts", cmd_drafts))
     application.add_handler(CallbackQueryHandler(draft_pick,    pattern=r"^draft:"))
     application.add_handler(CallbackQueryHandler(draft_publish, pattern=r"^dpub:"))
     application.add_handler(CommandHandler("posts",  cmd_posts))
     application.add_handler(CommandHandler("essays", cmd_essays))
+    application.add_handler(CommandHandler("books",    cmd_books))
     application.add_handler(CommandHandler("delete",   cmd_delete))
     application.add_handler(CommandHandler("delessay", cmd_delessay))
+    application.add_handler(CommandHandler("delbook",  cmd_delbook))
     application.add_handler(CallbackQueryHandler(delete_pick,    pattern=r"^del:"))
     application.add_handler(CallbackQueryHandler(delete_confirm, pattern=r"^delconf:"))
     application.add_handler(CommandHandler("restart", cmd_restart))

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Books — Xurshid{% endblock %}
+{% block content %}
+<style>
+.shelf{list-style:none;padding:0;margin:2em 0 0}
+.book{display:flex;gap:1.2em;align-items:flex-start;margin-bottom:2.4em}
+.book-cover{flex:0 0 90px}
+.book-cover img{width:90px;height:auto;margin:0;border:1px solid #ddd}
+.book-body{flex:1;min-width:0}
+.book-title{font-size:1.15em;margin-bottom:.15em}
+.book-author{color:#666;font-size:.85em;margin-bottom:.5em}
+.book-summary{margin-bottom:0}
+@media (max-width:420px){
+  .book-cover{flex-basis:70px}
+  .book-cover img{width:70px}
+}
+</style>
+
+<h1>Books</h1>
+<p class="meta">{{ count }} book{{ '' if count == 1 else 's' }}</p>
+
+{% if books %}
+<ul class="shelf">
+  {% for b in books %}
+  <li class="book">
+    {% if b.cover %}
+    <div class="book-cover">
+      <a href="/books/{{ b.slug }}"><img src="{{ b.cover }}" alt="{{ b.title }}"></a>
+    </div>
+    {% endif %}
+    <div class="book-body">
+      <div class="book-title"><a href="/books/{{ b.slug }}">{{ b.title }}</a></div>
+      {% if b.author %}<div class="book-author">{{ b.author }}</div>{% endif %}
+      {% if b.summary %}<p class="book-summary">{{ b.summary }}</p>{% endif %}
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p>Nothing here yet.</p>
+{% endif %}
+{% endblock %}

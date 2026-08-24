@@ -198,6 +198,27 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
 .notice a{color:#00e;text-underline-offset:2px}
 .notice code{font-family:ui-monospace,monospace;font-size:12px;color:#2f5d2f}
 
+/* ── Book fields ── */
+.bookrow{display:flex;gap:14px;margin-bottom:22px;align-items:flex-start}
+.bookrow .fields{flex:1;min-width:0}
+.coverbox{
+  flex:0 0 90px;text-align:center;
+  font-family:system-ui,sans-serif;font-size:11px;color:#999;
+}
+.coverbox img{width:90px;height:auto;border:1px solid #ddd;display:block;margin-bottom:6px}
+.coverbox .placeholder{
+  width:90px;height:130px;border:1px dashed #ccc;border-radius:3px;
+  display:flex;align-items:center;justify-content:center;color:#bbb;margin-bottom:6px;
+}
+.bookfield{
+  width:100%;background:transparent;border:none;border-bottom:1px solid #ddd;
+  outline:none;color:#111;font-family:system-ui,sans-serif;font-size:13px;
+  padding:0 0 8px;margin-bottom:16px;caret-color:#111;
+}
+.bookfield::placeholder{color:#ccc}
+.bookfield:focus{border-bottom-color:#999}
+textarea.bookfield{resize:vertical;min-height:52px;line-height:1.5;font-family:Georgia,serif;font-size:15px}
+
 /* ── Image upload ── */
 .editor-wrap.dragover{
   outline:1px dashed #999;
@@ -228,16 +249,14 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
   <!-- Top bar -->
   <div class="topbar">
     <div class="topbar-left">
-      <span>{{ 'ESSAY' if kind == 'essay' else 'POST' }}</span>
+      <span>{{ kind | upper }}</span>
       <span class="sep">·</span>
-      {% if kind == 'essay' %}
-        <a href="/{{ ap }}/write">New post</a>
-      {% else %}
-        <a href="/{{ ap }}/write?kind=essay">New essay</a>
-      {% endif %}
+      {% if kind != 'post' %}<a href="/{{ ap }}/write">New post</a>{% endif %}
+      {% if kind != 'essay' %}<a href="/{{ ap }}/write?kind=essay">New essay</a>{% endif %}
+      {% if kind != 'book' %}<a href="/{{ ap }}/write?kind=book">New book</a>{% endif %}
       {% if edit_mode %}
         <span class="sep">·</span>
-        <a href="/{{ ap }}/write{% if kind == 'essay' %}?kind=essay{% endif %}">New {{ kind }}</a>
+        <a href="/{{ ap }}/write{% if kind != 'post' %}?kind={{ kind }}{% endif %}">New {{ kind }}</a>
       {% endif %}
     </div>
     <a href="/{{ ap }}/logout">logout</a>
@@ -248,7 +267,7 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
     {% if essays %}
     <div class="essay-list">
       <div class="essay-list-header" onclick="toggleList(this)">
-        YOUR {{ 'ESSAYS' if kind == 'essay' else 'POSTS' }} ({{ essays|length }}) <span id="arrow">▸</span>
+        YOUR {{ kind | upper }}S ({{ essays|length }}) <span id="arrow">▸</span>
       </div>
       <div class="essay-list-body" id="essayListBody">
         {% for e in essays %}
@@ -257,7 +276,7 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
           <span class="essay-item-date">{{ e.date }}</span>
           {% if e.draft %}<span class="draft-badge">draft</span>
           {% elif not e.published %}<span class="draft-badge">unpublished</span>{% endif %}
-          <a class="essay-item-edit" href="/{{ ap }}/edit/{{ e.slug }}{% if kind == 'essay' %}?kind=essay{% elif e.draft %}?draft=1{% endif %}">Edit</a>
+          <a class="essay-item-edit" href="/{{ ap }}/edit/{{ e.slug }}{% if kind != 'post' %}?kind={{ kind }}{% elif e.draft %}?draft=1{% endif %}">Edit</a>
         </div>
         {% endfor %}
       </div>
@@ -291,7 +310,7 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
   <!-- Success notice -->
   {% if ok %}
   <div class="notice success">
-    {% set _new_link = '/' ~ ap ~ '/write' ~ ('?kind=essay' if kind == 'essay' else '') %}
+    {% set _new_link = '/' ~ ap ~ '/write' ~ ('?kind=' ~ kind if kind != 'post' else '') %}
     {% if edit_mode %}
       {% if is_draft or not edit_published %}
         Saved — not published, so <code>{{ live_url }}</code> 404s until you publish it.
@@ -299,7 +318,7 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
         Saved. <a href="{{ live_url }}">↗ view live</a>
       {% endif %}
     {% elif draft %}
-      {% if kind == 'essay' %}
+      {% if kind != 'post' %}
         Saved unpublished. It stays at <code>{{ live_url }}</code> but 404s until you publish it.
       {% else %}
         Draft saved.
@@ -307,7 +326,7 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
       <a href="{{ _new_link }}">New {{ kind }}</a>
     {% else %}
       Published → <a href="{{ live_url }}">{{ live_url }}</a>
-      {% if kind == 'essay' %}<br><span style="color:#5a8a5a">Unlisted — reachable only via this link.</span>{% endif %}
+      {% if kind == 'essay' %}<br><span style="color:#2f5d2f">Unlisted — reachable only via this link.</span>{% endif %}
       &nbsp;·&nbsp; <a href="{{ _new_link }}">New {{ kind }}</a>
     {% endif %}
   </div>
@@ -335,9 +354,31 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
       placeholder="tags: embedded, python" autocomplete="off" spellcheck="false"
       value="{{ edit_tags }}">
 
+    {% if kind == 'book' %}
+    <div class="bookrow">
+      <div class="coverbox">
+        <img id="coverImg" src="{{ edit_cover }}" alt="cover"
+             {% if not edit_cover %}hidden{% endif %}>
+        <div class="placeholder" id="coverNone" {% if edit_cover %}hidden{% endif %}>no cover</div>
+        <button type="button" class="imgbtn" id="coverBtn">
+          {{ 'replace' if edit_cover else 'add cover' }}</button>
+        <input type="hidden" name="cover" id="coverUrl" value="{{ edit_cover }}">
+        <input type="file" id="coverFile" accept="image/*" hidden>
+      </div>
+      <div class="fields">
+        <input class="bookfield" name="author" id="author" type="text"
+               placeholder="Author" autocomplete="off" value="{{ edit_author }}">
+        <textarea class="bookfield" name="summary" id="summary" rows="3"
+                  placeholder="Short summary — this is what shows on the /books list"
+                  >{{ edit_summary }}</textarea>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="editor-wrap" id="editorWrap">
       <textarea id="content" name="content"
-        placeholder="Write..." autocomplete="off" spellcheck="false"
+        placeholder="{{ 'Your thoughts, highlights and notes…' if kind == 'book' else 'Write...' }}"
+      autocomplete="off" spellcheck="false"
       >{{ edit_content }}</textarea>
     </div>
 
@@ -352,11 +393,11 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
     <div class="actions">
       {% if edit_mode %}
         <button type="submit" name="action" value="save" class="btn primary">Save changes</button>
-        {% if is_draft or (kind == 'essay' and not edit_published) %}
+        {% if is_draft or (kind != 'post' and not edit_published) %}
           <button type="submit" name="action" value="publish" class="btn">Publish</button>
         {% elif edit_published %}
           <button type="submit" name="action" value="unpublish" class="btn">
-            {{ 'Unpublish' if kind == 'essay' else 'Move to drafts' }}</button>
+            {{ 'Move to drafts' if kind == 'post' else 'Unpublish' }}</button>
         {% endif %}
       {% else %}
         <button type="submit" name="action" value="publish" class="btn primary">
@@ -522,6 +563,42 @@ wrap.addEventListener('drop', e => uploadAll(e.dataTransfer.files));
 window.addEventListener('beforeunload', e => {
   if (pending) { e.preventDefault(); e.returnValue = ''; }
 });
+
+// ── Book cover ────────────────────────────────────────────────────────────────
+// Same endpoint as inline images; the URL just lands in a hidden field instead of
+// in the text, so the cover travels with the form when it is saved.
+const coverBtn = document.getElementById('coverBtn');
+if (coverBtn) {
+  const coverFile = document.getElementById('coverFile');
+  const coverImg  = document.getElementById('coverImg');
+  const coverNone = document.getElementById('coverNone');
+  const coverUrl  = document.getElementById('coverUrl');
+
+  coverBtn.addEventListener('click', () => coverFile.click());
+  coverFile.addEventListener('change', async () => {
+    const file = coverFile.files[0];
+    coverFile.value = '';
+    if (!file) return;
+    const was = coverBtn.textContent;
+    coverBtn.textContent = 'uploading…';
+    try {
+      const body = new FormData();
+      body.append('image', file);
+      body.append('_csrf', CSRF);
+      const res  = await fetch(`/${ADMIN_PATH}/upload`, { method: 'POST', body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `upload failed (${res.status})`);
+      coverUrl.value = data.url;
+      coverImg.src = data.url;
+      coverImg.hidden = false;
+      coverNone.hidden = true;
+      coverBtn.textContent = 'replace';
+    } catch (err) {
+      coverBtn.textContent = was;
+      alert(err.message);
+    }
+  });
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 resizeTitle();

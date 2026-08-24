@@ -12,8 +12,9 @@ from datetime import date, datetime, timezone
 from flask import Flask, render_template, abort, request, Response, redirect, session
 from markupsafe import Markup, escape
 import markdown
-from PIL import Image, ImageOps
 import yaml
+
+from imagestore import save_image_bytes
 
 UPLOAD_MAX = 16 * 1024 * 1024      # hard ceiling on any request body
 IMAGE_MAX_W = 1600                 # uploads wider than this are downscaled
@@ -32,6 +33,7 @@ IMAGES  = Path("static/img")       # admin-uploaded essay images
 POSTS   = Path("content/posts")
 ESSAYS  = Path("content/essays")   # unlisted, served at root: /<slug>
 DRAFTS  = Path("content/drafts")   # unpublished blog posts
+BOOKS   = Path("content/books")    # one file per book: cover, summary, notes
 
 # ── Admin config ──────────────────────────────────────────────────────────────
 _ADMIN_PATH = os.environ.get("ADMIN_PATH", "").strip("/")
@@ -47,7 +49,7 @@ app.secret_key = hashlib.sha256(_secret_src.encode()).digest() if _secret_src el
 # named "about" could not hijack /about — but it would be permanently unreachable,
 # which is worse than being told at publish time. Both writers check this set.
 _RESERVED_SLUGS = {
-    "blog", "about", "now", "contact", "projects", "tools",
+    "blog", "about", "now", "contact", "projects", "tools", "books",
     "feed.xml", "sitemap.xml", "static", "robots.txt", "favicon.ico", "admin",
 }
 if _ADMIN_PATH:
@@ -107,6 +109,8 @@ def parse_post(path: Path) -> dict:
     meta.setdefault("type", None)
     meta.setdefault("series", None)
     meta.setdefault("summary", None)
+    meta.setdefault("cover", None)
+    meta.setdefault("author", None)
     return meta
 
 
@@ -141,6 +145,28 @@ def get_essay_slug_map() -> dict:
     if not ESSAYS.exists():
         return result
     for p in ESSAYS.glob("*.md"):
+        text = p.read_text(encoding="utf-8")
+        meta = yaml.safe_load(text.split("---", 2)[1]) or {} if text.startswith("---") else {}
+        result[_derive_slug(p, meta)] = p
+    return result
+
+
+@lru_cache(maxsize=None)
+def get_books() -> list[dict]:
+    """Published books, newest first. The list has no cap — it just grows."""
+    if not BOOKS.exists():
+        return []
+    paths = sorted(BOOKS.glob("*.md"), key=lambda p: p.stem, reverse=True)
+    return [b for b in (parse_post(p) for p in paths) if b.get("published")]
+
+
+@lru_cache(maxsize=None)
+def get_book_slug_map() -> dict:
+    """{slug: Path} for books. Includes unpublished ones — the view filters them."""
+    result = {}
+    if not BOOKS.exists():
+        return result
+    for p in BOOKS.glob("*.md"):
         text = p.read_text(encoding="utf-8")
         meta = yaml.safe_load(text.split("---", 2)[1]) or {} if text.startswith("---") else {}
         result[_derive_slug(p, meta)] = p
@@ -252,6 +278,23 @@ def tools():
     return render_template("tools.html", sections=read_yaml("tools.yaml"))
 
 
+@app.route("/books")
+def books():
+    shelf = get_books()
+    return render_template("books.html", books=shelf, count=len(shelf))
+
+
+@app.route("/books/<slug>")
+def book(slug):
+    path = get_book_slug_map().get(slug)
+    if path is None:
+        abort(404)
+    data = parse_post(path)
+    if not data.get("published"):
+        abort(404)
+    return render_template("book.html", book=data)
+
+
 @app.route("/feed.xml")
 def feed():
     posts = get_posts()
@@ -264,7 +307,9 @@ def feed():
 def sitemap():
     posts = get_posts()
     base = request.host_url.rstrip("/")
-    static_routes = ["/", "/blog", "/about", "/now", "/contact", "/projects", "/tools"]
+    static_routes = ["/", "/blog", "/about", "/now", "/contact", "/projects",
+                     "/tools", "/books"]
+    static_routes += [f"/books/{b['slug']}" for b in get_books()]
     xml = render_template("sitemap.xml", posts=posts, static_routes=static_routes, base=base)
     return Response(xml, mimetype="application/xml")
 
@@ -326,12 +371,26 @@ def _admin_slugify(text: str) -> str:
 
 def _kind_dir(kind: str) -> Path:
     """Content directory for an admin 'kind'. Anything unrecognised means blog posts."""
-    return ESSAYS if kind == "essay" else POSTS
+    return {"essay": ESSAYS, "book": BOOKS}.get(kind, POSTS)
 
 
 def _kind_url(kind: str, slug: str) -> str:
     """Public URL a published item of this kind ends up at."""
-    return f"/{slug}" if kind == "essay" else f"/blog/{slug}"
+    if kind == "essay":
+        return f"/{slug}"
+    if kind == "book":
+        return f"/books/{slug}"
+    return f"/blog/{slug}"
+
+
+def _admin_kind(raw: str | None) -> str:
+    """Normalise the kind coming off a query string or form. Unknown means post."""
+    return raw if raw in {"essay", "book"} else "post"
+
+
+# Essays and books hide behind a frontmatter flag rather than moving between
+# directories: both live at a fixed URL, so published: false is what makes them 404.
+_FLAG_KINDS = {"essay", "book"}
 
 
 def _load_essays_meta(directory: Path, draft: bool = False) -> list[dict]:
@@ -353,6 +412,7 @@ def _load_essays_meta(directory: Path, draft: bool = False) -> list[dict]:
             "published": meta.get("published", True),
             "filename":  p.name,
             "draft":     draft,
+            "cover":     meta.get("cover"),
         })
     return result
 
@@ -364,54 +424,38 @@ def _admin_listing(kind: str) -> list[dict]:
     unpublished essays already sit alongside published ones and carry their own
     flag, so the essay side needs no extra pass.
     """
-    if kind == "essay":
-        return _load_essays_meta(ESSAYS)
+    if kind in _FLAG_KINDS:
+        return _load_essays_meta(_kind_dir(kind))
     items = _load_essays_meta(POSTS) + _load_essays_meta(DRAFTS, draft=True)
     return sorted(items, key=lambda e: (e["date"], e["title"]), reverse=True)
 
 
 def _store_image(fs) -> str | None:
-    """Save an uploaded image under static/img/, or None if it is not one.
-
-    Everything is re-encoded rather than trusted: Pillow parsing the bytes is what
-    proves the upload is an image at all, and re-saving drops EXIF (including GPS)
-    on the way out. Wide photos are downscaled — the server is a long way from most
-    readers, so a 4000px phone shot would cost seconds for no visible gain.
-    Animated GIFs are stored byte-for-byte, since re-encoding would flatten them.
-    """
+    """Save an image posted by the editor. See imagestore.save_image_bytes."""
     raw = fs.read(UPLOAD_MAX + 1)
-    if not raw or len(raw) > UPLOAD_MAX:
-        return None
-    try:
-        Image.open(io.BytesIO(raw)).verify()      # structural check; consumes the file
-        im = Image.open(io.BytesIO(raw))          # ...so reopen for the real work
-        fmt = (im.format or "").upper()
-    except Exception:
-        return None
-    if fmt not in {"JPEG", "PNG", "GIF", "WEBP"}:
-        return None
+    return save_image_bytes(raw, fs.filename or "image", IMAGES)
 
-    stem = _admin_slugify(Path(fs.filename or "image").stem)[:40] or "image"
-    name = f"{date.today().isoformat()}-{stem}-{secrets.token_hex(3)}"
-    IMAGES.mkdir(parents=True, exist_ok=True)
 
-    if fmt == "GIF":
-        out = IMAGES / f"{name}.gif"
-        out.write_bytes(raw)
-        return f"/{out.as_posix()}"
+def _yaml_str(value: str) -> str:
+    """Quote a value for single-line YAML without letting it break out."""
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
-    im = ImageOps.exif_transpose(im)               # apply camera rotation, then lose it
-    if im.width > IMAGE_MAX_W:
-        height = round(im.height * IMAGE_MAX_W / im.width)
-        im = im.resize((IMAGE_MAX_W, height), Image.LANCZOS)
 
-    if im.mode in {"RGBA", "LA"} or (im.mode == "P" and "transparency" in im.info):
-        out = IMAGES / f"{name}.png"
-        im.convert("RGBA").save(out, "PNG", optimize=True)
-    else:
-        out = IMAGES / f"{name}.jpg"
-        im.convert("RGB").save(out, "JPEG", quality=82, optimize=True, progressive=True)
-    return f"/{out.as_posix()}"
+def _book_fields(form, existing: dict | None = None) -> str:
+    """Frontmatter lines unique to books: author, cover, summary.
+
+    Editing keeps whatever the file already had when the form leaves a field blank,
+    so saving notes can never silently drop a cover that was set from the bot.
+    """
+    if _admin_kind(form.get("kind")) != "book":
+        return ""
+    existing = existing or {}
+    out = ""
+    for field in ("author", "cover", "summary"):
+        value = (form.get(field) or "").strip() or (existing.get(field) or "")
+        if value:
+            out += f"{field}: {_yaml_str(value)}\n"
+    return out
 
 
 def _find_essay(slug: str, directory: Path):
@@ -454,7 +498,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         ok    = request.args.get("ok")
         slug  = request.args.get("slug", "")
         draft = request.args.get("draft", "0") == "1"
-        kind  = "essay" if request.args.get("kind") == "essay" else "post"
+        kind  = _admin_kind(request.args.get("kind"))
         return render_template(
             "admin_editor.html",
             ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft, kind=kind,
@@ -462,13 +506,14 @@ if _ADMIN_PATH and _ADMIN_PASS:
             live_url=_kind_url(kind, slug),
             edit_mode=False, essays=_admin_listing(kind),
             edit_title="", edit_tags="", edit_content="", edit_slug="",
+            edit_author="", edit_cover="", edit_summary="",
         )
 
     @app.route(f"/{_ADMIN_PATH}/edit/<slug>")
     def _admin_edit(slug):
         if not _is_admin():
             return redirect(f"/{_ADMIN_PATH}")
-        kind = "essay" if request.args.get("kind") == "essay" else "post"
+        kind = _admin_kind(request.args.get("kind"))
         is_draft = kind == "post" and request.args.get("draft") == "1"
         path, meta, body = _find_essay(slug, DRAFTS if is_draft else _kind_dir(kind))
         if path is None:
@@ -484,6 +529,9 @@ if _ADMIN_PATH and _ADMIN_PASS:
             edit_tags=tags_str,
             edit_content=body,
             edit_slug=slug,
+            edit_author=meta.get("author", "") or "",
+            edit_cover=meta.get("cover", "") or "",
+            edit_summary=meta.get("summary", "") or "",
             edit_filename=path.name,
             edit_published=meta.get("published", True) is not False,
         )
@@ -497,7 +545,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         tags_r  = request.form.get("tags", "").strip()
         content = request.form.get("content", "").strip()
         action  = request.form.get("action", "publish")
-        kind    = "essay" if request.form.get("kind") == "essay" else "post"
+        kind    = _admin_kind(request.form.get("kind"))
         if not title or not content:
             abort(400)
         slug      = _admin_slugify(title)
@@ -508,15 +556,18 @@ if _ADMIN_PATH and _ADMIN_PASS:
         # Essays sit at the site root, so their slug must not collide with a real page.
         if kind == "essay" and (not slug or slug in _RESERVED_SLUGS):
             return redirect(f"/{_ADMIN_PATH}/write?kind=essay&err=slug")
+        if kind == "book" and not slug:
+            return redirect(f"/{_ADMIN_PATH}/write?kind=book&err=slug")
         # An essay has no list to hide from, so "draft" means published: false (404s
         # publicly, still editable here). A blog post drafts to content/drafts/ instead.
-        published = "false" if (kind == "essay" and action == "draft") else "true"
+        published = "false" if (kind in _FLAG_KINDS and action == "draft") else "true"
         fm = (
             f'---\ntitle: "{title}"\ndate: {date_str}\nslug: {slug}\n'
-            f"published: {published}\ntags: {tags_yaml}\n---\n\n{content}\n"
+            f"published: {published}\ntags: {tags_yaml}\n"
+            f"{_book_fields(request.form)}---\n\n{content}\n"
         )
-        if kind == "essay":
-            target = ESSAYS
+        if kind in _FLAG_KINDS:
+            target = _kind_dir(kind)
         else:
             target = DRAFTS if action == "draft" else POSTS
         target.mkdir(parents=True, exist_ok=True)
@@ -538,7 +589,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         title   = request.form.get("title", "").strip()
         tags_r  = request.form.get("tags", "").strip()
         content = request.form.get("content", "").strip()
-        kind    = "essay" if request.form.get("kind") == "essay" else "post"
+        kind    = _admin_kind(request.form.get("kind"))
         action  = request.form.get("action", "save")
         if not slug or not fname or not title or not content:
             abort(400)
@@ -566,7 +617,8 @@ if _ADMIN_PATH and _ADMIN_PASS:
             published = "true" if (action == "publish" or was_published) else "false"
         fm = (
             f'---\ntitle: "{title}"\ndate: {orig_date}\nslug: {orig_slug}\n'
-            f"published: {published}\ntags: {tags_yaml}\n---\n\n{content}\n"
+            f"published: {published}\ntags: {tags_yaml}\n"
+            f"{_book_fields(request.form, meta)}---\n\n{content}\n"
         )
         # Publishing a draft moves the file out of content/drafts/ into the live
         # directory, and unpublishing a post moves it back. Essays never move —

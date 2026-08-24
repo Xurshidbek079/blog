@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ book.title }} — Books — Xurshid{% endblock %}
+{% block content %}
+<style>
+.book-head{margin-bottom:2em}
+.book-head img{max-width:180px;margin:0 0 1.2em}
+</style>
+
+<div class="book-head">
+  {% if book.cover %}<img src="{{ book.cover }}" alt="{{ book.title }}">{% endif %}
+  <h1>{{ book.title }}</h1>
+  {% if book.author %}<p class="meta">{{ book.author }}</p>{% endif %}
+</div>
+
+<div>{{ book.content | safe }}</div>
+
+<p class="back"><a href="/books">← Books</a></p>
+{% endblock %}

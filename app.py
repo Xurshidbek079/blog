@@ -236,7 +236,7 @@ def rss_date_filter(d):
 
 @app.route("/")
 def home():
-    return render_template("home.html", recent_posts=get_posts()[:5])
+    return render_template("home.html")
 
 
 @app.route("/blog")

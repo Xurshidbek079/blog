@@ -4,15 +4,5 @@
 <h1>Xurshid</h1>
 <p>Electronics &amp; Embedded software engineer. I write about things I'm building and learning.</p>
 
-{% if recent_posts %}
-<h2>Recent posts</h2>
-<ul class="posts">
-{% for p in recent_posts %}
-<li><span class="date">{{ p.date }}</span> <a href="/blog/{{ p.slug }}">{{ p.title }}</a></li>
-{% endfor %}
-</ul>
-<p><a href="/blog">→ All posts</a></p>
-{% endif %}
-
 <p>Have something to say? I'd love to hear from you. <a href="/contact">Contact</a>.</p>
 {% endblock %}

@@ -476,6 +476,26 @@ def _find_essay(slug: str, directory: Path):
     return None, {}, ""
 
 
+def _slug_taken(slug: str, kind: str, exclude: Path | None = None) -> bool:
+    """True if something else of this kind already answers to `slug`.
+
+    Blog posts are checked against drafts too: a draft published later would
+    otherwise land on a URL a post had quietly taken in the meantime.
+    """
+    dirs = [_kind_dir(kind)] + ([DRAFTS] if kind == "post" else [])
+    for d in dirs:
+        if not d.exists():
+            continue
+        for p in d.glob("*.md"):
+            if exclude is not None and p.name == exclude.name and p.parent == exclude.parent:
+                continue
+            text = p.read_text(encoding="utf-8")
+            meta = yaml.safe_load(text.split("---", 2)[1]) or {} if text.startswith("---") else {}
+            if _derive_slug(p, meta) == slug:
+                return True
+    return False
+
+
 if _ADMIN_PATH and _ADMIN_PASS:
 
     @app.route(f"/{_ADMIN_PATH}", methods=["GET", "POST"])
@@ -503,7 +523,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
             "admin_editor.html",
             ap=_ADMIN_PATH, ok=ok, slug=slug, draft=draft, kind=kind,
             err=request.args.get("err"),
-            live_url=_kind_url(kind, slug),
+            live_url=_kind_url(kind, slug), url_prefix=_kind_url(kind, ""),
             edit_mode=False, essays=_admin_listing(kind),
             edit_title="", edit_tags="", edit_content="", edit_slug="",
             edit_author="", edit_cover="", edit_summary="",
@@ -523,7 +543,9 @@ if _ADMIN_PATH and _ADMIN_PASS:
         return render_template(
             "admin_editor.html",
             ap=_ADMIN_PATH, ok=ok, slug=slug, draft=False, kind=kind,
-            live_url=_kind_url(kind, slug), is_draft=is_draft,
+            err=request.args.get("err"), renamed=request.args.get("renamed"),
+            live_url=_kind_url(kind, slug), url_prefix=_kind_url(kind, ""),
+            is_draft=is_draft,
             edit_mode=True, essays=[],
             edit_title=meta.get("title", ""),
             edit_tags=tags_str,
@@ -605,6 +627,20 @@ if _ADMIN_PATH and _ADMIN_PASS:
             meta = yaml.safe_load(parts[1]) or {}
         orig_slug    = meta.get("slug") or re.sub(r'^\d{4}-\d{2}-\d{2}-', '', path.stem)
         orig_date    = str(meta.get("date", date.today().isoformat()))
+        # Changing the slug moves the public URL and leaves the old one 404ing, so a
+        # new one clears the same checks a fresh publish does. A rejected slug is
+        # reported rather than enforced: the body is saved either way, so nobody
+        # loses a long edit to a typo in a field they were barely touching.
+        old_slug = orig_slug
+        slug_err = None
+        want     = _admin_slugify(request.form.get("new_slug", ""))
+        if want and want != orig_slug:
+            if kind == "essay" and want in _RESERVED_SLUGS:
+                slug_err = "slugreserved"
+            elif _slug_taken(want, kind, exclude=path):
+                slug_err = "slugtaken"
+            else:
+                orig_slug = want
         tags         = [_admin_slugify(t) for t in tags_r.split(",") if t.strip()]
         tags_yaml    = "[" + ", ".join(tags) + "]" if tags else "[]"
         # Saving must not silently publish an unpublished essay — only the Publish
@@ -638,8 +674,14 @@ if _ADMIN_PATH and _ADMIN_PASS:
             path.write_text(fm, encoding="utf-8")
         subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
         still_draft = "&draft=1" if is_draft else ""
+        if slug_err:
+            extra = f"&err={slug_err}"
+        elif orig_slug != old_slug:
+            extra = f"&renamed={old_slug}"
+        else:
+            extra = ""
         return redirect(
-            f"/{_ADMIN_PATH}/edit/{orig_slug}?ok=1&kind={kind}{still_draft}"
+            f"/{_ADMIN_PATH}/edit/{orig_slug}?ok=1&kind={kind}{still_draft}{extra}"
         )
 
     @app.route(f"/{_ADMIN_PATH}/upload", methods=["POST"])

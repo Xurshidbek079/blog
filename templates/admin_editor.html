@@ -154,6 +154,26 @@ html,body{height:100%;background:#fff;color:#111;font-family:Georgia,serif}
 #tags::placeholder{color:#ccc}
 #tags:focus{border-bottom-color:#999;color:#333}
 
+/* ── Slug row ── */
+.slugrow{
+  display:flex;align-items:baseline;
+  border-bottom:1px solid #ddd;
+  margin-bottom:28px;
+  cursor:text;
+}
+.slugrow:focus-within{border-bottom-color:#999}
+.slugpre{
+  font-family:ui-monospace,monospace;font-size:13px;color:#bbb;
+  padding-bottom:10px;white-space:nowrap;
+}
+#new_slug{
+  flex:1;min-width:0;
+  background:transparent;border:none;outline:none;
+  color:#666;font-family:ui-monospace,monospace;font-size:13px;
+  padding:0 0 10px;caret-color:#111;
+}
+#new_slug:focus{color:#333}
+
 /* ── Writing area ── */
 .editor-wrap{position:relative;flex:1}
 #content{
@@ -307,6 +327,17 @@ textarea.bookfield{resize:vertical;min-height:52px;line-height:1.5;font-family:G
   </div>
   {% endif %}
 
+  <!-- Slug rejected — the save still went through -->
+  {% if err == 'slugtaken' %}
+  <div class="notice error">
+    Saved, but the URL is unchanged: another {{ kind }} already uses that slug.
+  </div>
+  {% elif err == 'slugreserved' %}
+  <div class="notice error">
+    Saved, but the URL is unchanged: that slug clashes with a real page like /about.
+  </div>
+  {% endif %}
+
   <!-- Success notice -->
   {% if ok %}
   <div class="notice success">
@@ -317,6 +348,8 @@ textarea.bookfield{resize:vertical;min-height:52px;line-height:1.5;font-family:G
       {% else %}
         Saved. <a href="{{ live_url }}">↗ view live</a>
       {% endif %}
+      {% if renamed %}<br>URL moved — <code>{{ url_prefix }}{{ renamed }}</code>
+      now 404s for anyone holding the old link.{% endif %}
     {% elif draft %}
       {% if kind != 'post' %}
         Saved unpublished. It stays at <code>{{ live_url }}</code> but 404s until you publish it.
@@ -353,6 +386,15 @@ textarea.bookfield{resize:vertical;min-height:52px;line-height:1.5;font-family:G
     <input id="tags" name="tags" type="text"
       placeholder="tags: embedded, python" autocomplete="off" spellcheck="false"
       value="{{ edit_tags }}">
+
+    {% if edit_mode %}
+    <label class="slugrow" for="new_slug"
+           title="This item's URL. Change it and the old link stops working.">
+      <span class="slugpre">{{ url_prefix }}</span>
+      <input id="new_slug" name="new_slug" type="text" value="{{ edit_slug }}"
+             autocomplete="off" spellcheck="false">
+    </label>
+    {% endif %}
 
     {% if kind == 'book' %}
     <div class="bookrow">

@@ -68,15 +68,29 @@ jobs:
           PREV: ${{ steps.check.outputs.prev }}
           TEST: ${{ inputs.test_alert }}
         run: |
+          # Strip stray spaces/newlines pasted into the secrets
+          TG_TOKEN=$(printf '%s' "$TG_TOKEN" | tr -d '[:space:]')
+          TG_CHAT=$(printf '%s' "$TG_CHAT" | tr -d '[:space:]')
           send() {
-            if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then echo "::warning::Telegram secrets not set"; return 0; fi
-            curl -s -o /dev/null -w 'telegram %{http_code}\n' --max-time 20 \
+            if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+              echo "::warning::Telegram secrets missing (token length ${#TG_TOKEN}, chat id length ${#TG_CHAT})"; return 0
+            fi
+            resp=$(curl -s -o tg.json -w '%{http_code}' --max-time 20 \
               "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-              --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$1" \
-              || echo "::warning::Telegram send failed"
+              --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$1") || resp=000
+            if [ "$resp" = 200 ]; then
+              echo "::notice::Telegram message sent"
+            else
+              desc=$(jq -r '.description // empty' tg.json 2>/dev/null)
+              echo "::warning::Telegram send failed: HTTP $resp ${desc} (token length ${#TG_TOKEN}, chat id length ${#TG_CHAT})"
+            fi
           }
           stamp=$(TZ=Asia/Tashkent date '+%Y-%m-%d %H:%M')
-          if [ "$TEST" = true ]; then send "✅ Uptime check test ($stamp). Alerts are working. Current state: $NOW"; fi
+          if [ "$TEST" = true ]; then
+            send "✅ Uptime check test ($stamp). Alerts are working. Current state: $NOW"
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "::notice::Manual run without the test box ticked, so no message was sent (state unchanged: $NOW)"
+          fi
           if [ "$NOW" = down ] && [ "$PREV" != down ]; then
             send "🔴 Server DOWN ($stamp Tashkent): $DOWN— laptop, hotspot or tunnel may be offline."
           elif [ "$NOW" = up ] && [ "$PREV" = down ]; then

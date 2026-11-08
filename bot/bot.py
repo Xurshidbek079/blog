@@ -15,7 +15,7 @@ from telegram.ext import (
 
 BOT_TOKEN   = os.environ["BOT_TOKEN"]
 ADMIN_ID    = int(os.environ["ADMIN_ID"])
-BLOG_DIR    = Path("/root/blog")
+BLOG_DIR    = Path(os.environ.get("BLOG_DIR") or Path(__file__).resolve().parent.parent)
 POSTS_DIR   = BLOG_DIR / "content/posts"     # listed blog posts  → /blog/<slug>
 ESSAYS_DIR  = BLOG_DIR / "content/essays"    # unlisted essays    → /<slug>
 DRAFTS_DIR  = BLOG_DIR / "content/drafts"
@@ -62,6 +62,10 @@ def slugify(text: str) -> str:
 
 
 def shell(cmd: str) -> tuple[int, str]:
+    # Not root (e.g. the dedicated "blog" user): systemctl goes through a
+    # narrow sudoers rule that allows only restart/status of blog.service.
+    if cmd.startswith("systemctl ") and os.geteuid() != 0:
+        cmd = "sudo -n " + cmd
     r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     return r.returncode, (r.stdout + r.stderr).strip()
 

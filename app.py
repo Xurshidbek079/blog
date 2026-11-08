@@ -16,6 +16,15 @@ import yaml
 
 from imagestore import save_image_bytes
 
+
+def _restart_blog():
+    """Restart blog.service to clear the lru_cache. As a non-root user this
+    goes through a sudoers rule limited to exactly this command."""
+    cmd = ["systemctl", "restart", "blog"]
+    if os.geteuid() != 0:
+        cmd = ["sudo", "-n"] + cmd
+    subprocess.run(cmd, capture_output=True)
+
 UPLOAD_MAX = 16 * 1024 * 1024      # hard ceiling on any request body
 IMAGE_MAX_W = 1600                 # uploads wider than this are downscaled
 
@@ -595,7 +604,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
         target.mkdir(parents=True, exist_ok=True)
         (target / fname).write_text(fm, encoding="utf-8")
         if action == "publish":
-            subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
+            _restart_blog()
         is_draft = "1" if action == "draft" else "0"
         return redirect(
             f"/{_ADMIN_PATH}/write?ok=1&slug={slug}&draft={is_draft}&kind={kind}"
@@ -672,7 +681,7 @@ if _ADMIN_PATH and _ADMIN_PASS:
             is_draft = True
         else:
             path.write_text(fm, encoding="utf-8")
-        subprocess.run(["systemctl", "restart", "blog"], capture_output=True)
+        _restart_blog()
         still_draft = "&draft=1" if is_draft else ""
         if slug_err:
             extra = f"&err={slug_err}"

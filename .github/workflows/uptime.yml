@@ -1,12 +1,13 @@
 # Outside uptime check for the home-laptop server.
 # Runs on GitHub's machines, so it notices when the laptop, hotspot or tunnel is down.
 # Alerts go to Telegram via the admin bot, only when the state changes (down / back up).
+# The last known state is kept in the Actions cache (key prefix "uptime-state-").
 # Secrets (repo Settings → Secrets and variables → Actions): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 name: uptime
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "7-59/10 * * * *"   # every 10 min, off the busy :00 minute
   workflow_dispatch:
     inputs:
       test_alert:
@@ -15,7 +16,7 @@ on:
         default: false
 
 permissions:
-  actions: write      # read previous run result; keep the schedule enabled
+  actions: write      # cache + keep the schedule enabled
   contents: read
 
 concurrency:
@@ -25,59 +26,72 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       URLS: "https://xurshid.org/ https://www.xurshid.org/ https://xurshidr.uz/ https://www.xurshidr.uz/"
       TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check sites
+      - name: Restore last state
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: uptime-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: uptime-state-
+
+      - name: Check sites (in parallel, max ~1 min)
         id: check
         run: |
-          down=""
-          for url in $URLS; do
-            ok=0
+          probe() {
+            url=$1; out=$2; code=000
             for attempt in 1 2 3; do
-              code=$(curl -s -o body.html -w '%{http_code}' --max-time 20 "$url" || echo 000)
-              if [ "$code" = 200 ] && grep -qi '<title>' body.html; then ok=1; break; fi
-              sleep 20
+              rm -f "$out.body"
+              code=$(curl -s -o "$out.body" -w '%{http_code}' --connect-timeout 5 --max-time 15 "$url") || true
+              if [ "$code" = 200 ] && grep -qi '<title>' "$out.body" 2>/dev/null; then echo "UP $url" > "$out"; return; fi
+              [ $attempt -lt 3 ] && sleep 10
             done
-            if [ $ok = 1 ]; then echo "UP   $url"; else echo "DOWN $url (HTTP $code)"; down="$down $url($code)"; fi
-          done
-          echo "down=$down" >> "$GITHUB_OUTPUT"
-
-      - name: Previous result
-        id: prev
-        run: |
-          prev=$(gh run list -R "$GITHUB_REPOSITORY" --workflow uptime.yml --status completed --limit 1 \
-                 --json conclusion -q '.[0].conclusion' 2>/dev/null || true)
-          echo "Previous run: ${prev:-none}"
-          echo "prev=${prev:-none}" >> "$GITHUB_OUTPUT"
+            echo "DOWN $url(HTTP $code)" > "$out"
+          }
+          i=0; for url in $URLS; do i=$((i+1)); probe "$url" "r$i" & done; wait
+          cat r?; down=$(grep -h '^DOWN' r? | cut -d' ' -f2- | tr '\n' ' ')
+          if [ -n "$down" ]; then now=down; echo "::error::Down: $down"; else now=up; fi
+          prev=$(cat state/status 2>/dev/null || echo none)
+          echo "Previous: $prev  Now: $now"
+          { echo "down=$down"; echo "now=$now"; echo "prev=$prev"; } >> "$GITHUB_OUTPUT"
+          mkdir -p state; echo "$now" > state/status
 
       - name: Notify Telegram on change
         env:
           DOWN: ${{ steps.check.outputs.down }}
-          PREV: ${{ steps.prev.outputs.prev }}
+          NOW: ${{ steps.check.outputs.now }}
+          PREV: ${{ steps.check.outputs.prev }}
           TEST: ${{ inputs.test_alert }}
         run: |
           send() {
             if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then echo "::warning::Telegram secrets not set"; return 0; fi
-            curl -s -o /dev/null -w 'telegram %{http_code}\n' "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-              --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$1"
+            curl -s -o /dev/null -w 'telegram %{http_code}\n' --max-time 20 \
+              "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+              --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$1" \
+              || echo "::warning::Telegram send failed"
           }
-          now=$(TZ=Asia/Tashkent date '+%Y-%m-%d %H:%M')
-          if [ "$TEST" = true ]; then send "✅ Uptime check test ($now). Alerts are working."; fi
-          if [ -n "$DOWN" ] && [ "$PREV" != failure ]; then
-            send "🔴 Server DOWN ($now Tashkent):$DOWN — laptop, hotspot or tunnel may be offline."
-          elif [ -z "$DOWN" ] && [ "$PREV" = failure ]; then
-            send "🟢 Server back UP ($now Tashkent). All sites respond."
+          stamp=$(TZ=Asia/Tashkent date '+%Y-%m-%d %H:%M')
+          if [ "$TEST" = true ]; then send "✅ Uptime check test ($stamp). Alerts are working. Current state: $NOW"; fi
+          if [ "$NOW" = down ] && [ "$PREV" != down ]; then
+            send "🔴 Server DOWN ($stamp Tashkent): $DOWN— laptop, hotspot or tunnel may be offline."
+          elif [ "$NOW" = up ] && [ "$PREV" = down ]; then
+            send "🟢 Server back UP ($stamp Tashkent). All sites respond."
           fi
 
-      - name: Keep schedule enabled
-        if: github.event_name == 'schedule'
-        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/uptime.yml/enable" || true
+      - name: Save state
+        if: always() && steps.check.outputs.now != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: uptime-state-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - name: Fail if down
-        if: steps.check.outputs.down != ''
-        run: exit 1
+      - name: Keep schedule enabled (once a day)
+        if: github.event_name == 'schedule'
+        run: |
+          # GitHub disables schedules in repos with no activity for 60 days; re-enabling is a best-effort reset.
+          if [ "$(date -u +%H)" = 03 ]; then gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/uptime.yml/enable" || true; fi

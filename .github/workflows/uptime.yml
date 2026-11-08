@@ -1,0 +1,83 @@
+# Outside uptime check for the home-laptop server.
+# Runs on GitHub's machines, so it notices when the laptop, hotspot or tunnel is down.
+# Alerts go to Telegram via the admin bot, only when the state changes (down / back up).
+# Secrets (repo Settings → Secrets and variables → Actions): TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+name: uptime
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Send a test Telegram message"
+        type: boolean
+        default: false
+
+permissions:
+  actions: write      # read previous run result; keep the schedule enabled
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      URLS: "https://xurshid.org/ https://www.xurshid.org/ https://xurshidr.uz/ https://www.xurshidr.uz/"
+      TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check sites
+        id: check
+        run: |
+          down=""
+          for url in $URLS; do
+            ok=0
+            for attempt in 1 2 3; do
+              code=$(curl -s -o body.html -w '%{http_code}' --max-time 20 "$url" || echo 000)
+              if [ "$code" = 200 ] && grep -qi '<title>' body.html; then ok=1; break; fi
+              sleep 20
+            done
+            if [ $ok = 1 ]; then echo "UP   $url"; else echo "DOWN $url (HTTP $code)"; down="$down $url($code)"; fi
+          done
+          echo "down=$down" >> "$GITHUB_OUTPUT"
+
+      - name: Previous result
+        id: prev
+        run: |
+          prev=$(gh run list -R "$GITHUB_REPOSITORY" --workflow uptime.yml --status completed --limit 1 \
+                 --json conclusion -q '.[0].conclusion' 2>/dev/null || true)
+          echo "Previous run: ${prev:-none}"
+          echo "prev=${prev:-none}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram on change
+        env:
+          DOWN: ${{ steps.check.outputs.down }}
+          PREV: ${{ steps.prev.outputs.prev }}
+          TEST: ${{ inputs.test_alert }}
+        run: |
+          send() {
+            if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then echo "::warning::Telegram secrets not set"; return 0; fi
+            curl -s -o /dev/null -w 'telegram %{http_code}\n' "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+              --data-urlencode chat_id="$TG_CHAT" --data-urlencode text="$1"
+          }
+          now=$(TZ=Asia/Tashkent date '+%Y-%m-%d %H:%M')
+          if [ "$TEST" = true ]; then send "✅ Uptime check test ($now). Alerts are working."; fi
+          if [ -n "$DOWN" ] && [ "$PREV" != failure ]; then
+            send "🔴 Server DOWN ($now Tashkent):$DOWN — laptop, hotspot or tunnel may be offline."
+          elif [ -z "$DOWN" ] && [ "$PREV" = failure ]; then
+            send "🟢 Server back UP ($now Tashkent). All sites respond."
+          fi
+
+      - name: Keep schedule enabled
+        if: github.event_name == 'schedule'
+        run: gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/uptime.yml/enable" || true
+
+      - name: Fail if down
+        if: steps.check.outputs.down != ''
+        run: exit 1
